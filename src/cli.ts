@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { CommandResult } from './core/types.js'
+import { runInitCommand } from './init/initCommand.js'
 
 function usage(): string {
   return [
@@ -14,11 +15,18 @@ function usage(): string {
 }
 
 export async function runCli(argv: string[], cwd: string = process.cwd()): Promise<CommandResult> {
-  const [command] = argv
+  const [command, ...rest] = argv
   if (!command) {
     return { ok: false, message: usage() }
   }
-  if (!['init', 'archive', 'iteration'].includes(command)) {
+  if (command === 'init') {
+    const description = rest.join(' ').trim()
+    if (!description) {
+      return { ok: false, message: 'init requires a business description' }
+    }
+    return runInitCommand(description, cwd)
+  }
+  if (!['archive', 'iteration'].includes(command)) {
     return { ok: false, message: `Unknown command: ${command}` }
   }
   return { ok: false, message: `Command not wired yet: ${command} in ${cwd}` }
