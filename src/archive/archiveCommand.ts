@@ -237,6 +237,76 @@ function mergeArchiveManifest(previousManifest: ArchiveManifest | null, nextMani
   }
 }
 
+function archivedPathsFromManifest(manifest: ArchiveManifest | null): Set<string> {
+  const paths = new Set<string>()
+  for (const doc of manifest?.archiveRuns.flatMap((run) => run.documents) ?? []) {
+    if (doc.archivePath) {
+      paths.add(doc.archivePath)
+    }
+  }
+  return paths
+}
+
+function uniqueArchivePrefix(sourcePath: string): string {
+  return sourcePath
+    .split('/')
+    .filter(Boolean)
+    .slice(0, -1)
+    .join('-')
+    .replace(/[^A-Za-z0-9\u4e00-\u9fa5]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath)
+    return true
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return false
+    }
+    throw error
+  }
+}
+
+async function resolveUniqueArchivePath(
+  cwd: string,
+  targetIterationPath: string,
+  doc: ArchiveDocument,
+  reservedArchivePaths: Set<string>
+): Promise<string> {
+  const categoryPath = toPosix(path.join(targetIterationPath, doc.category))
+  const parsedName = path.parse(doc.sourcePath)
+  const basename = path.basename(doc.sourcePath)
+  const prefix = uniqueArchivePrefix(doc.sourcePath)
+  const baseCandidates = [...new Set([basename, prefix ? `${prefix}-${basename}` : basename])]
+
+  for (const candidateName of baseCandidates) {
+    const archivePath = toPosix(path.join(categoryPath, candidateName))
+    if (reservedArchivePaths.has(archivePath)) {
+      continue
+    }
+    if (await pathExists(path.join(cwd, archivePath))) {
+      continue
+    }
+    reservedArchivePaths.add(archivePath)
+    return archivePath
+  }
+
+  for (let index = 2; ; index += 1) {
+    const candidateName = `${prefix ? `${prefix}-` : ''}${parsedName.name}-${index}${parsedName.ext}`
+    const archivePath = toPosix(path.join(categoryPath, candidateName))
+    if (reservedArchivePaths.has(archivePath)) {
+      continue
+    }
+    if (await pathExists(path.join(cwd, archivePath))) {
+      continue
+    }
+    reservedArchivePaths.add(archivePath)
+    return archivePath
+  }
+}
+
 export async function runArchiveCommand(cwd: string, options: ArchiveCommandOptions): Promise<CommandResult> {
   if (!options.staged) {
     return { ok: false, message: 'archive requires --staged' }
@@ -281,6 +351,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
   const manifestPath = path.join(iterationPath, 'manifest.json')
   const iterationMarkdownPath = path.join(iterationPath, 'iteration.md')
   const previousManifest = await readTextOrNull(manifestPath)
+  const existingManifest = readPreviousManifest(previousManifest, target.iteration)
   const previousIterationMarkdown = await readTextOrNull(iterationMarkdownPath)
   const previousActive = await readActiveIteration(cwd)
 
@@ -292,15 +363,14 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
   const createdFiles: string[] = []
   const createdDirectories: string[] = []
   const createdDirectorySet = new Set<string>()
+  const reservedArchivePaths = archivedPathsFromManifest(existingManifest)
   let activeIterationTouched = false
 
   try {
     const processedDocuments: ArchiveDocument[] = []
     for (const doc of documents) {
       if (doc.action === 'archive') {
-        const archiveRelativePath = toPosix(
-          path.join(target.iterationPath, doc.category, path.basename(doc.sourcePath))
-        )
+        const archiveRelativePath = await resolveUniqueArchivePath(cwd, target.iterationPath, doc, reservedArchivePaths)
         const absoluteArchivePath = path.join(cwd, archiveRelativePath)
         const absoluteSourcePath = path.join(cwd, doc.sourcePath)
         const categoryDirectory = path.join(cwd, target.iterationPath, doc.category)
@@ -329,7 +399,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
       }
     }
 
-    const manifest = mergeArchiveManifest(readPreviousManifest(previousManifest, target.iteration), buildManifest({
+    const manifest = mergeArchiveManifest(existingManifest, buildManifest({
       iteration: target.iteration,
       summaryStatus: 'degraded',
       slugSource: target.slugSource,

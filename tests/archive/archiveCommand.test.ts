@@ -590,6 +590,80 @@ describe('runArchiveCommand', () => {
     )
   })
 
+  it('does not overwrite archived evidence from a previous run with the same basename', async () => {
+    const cwd = await makeTempRepo()
+    const iteration = '2026-06-27-payment'
+    const iterationPath = `docs/iterations/${iteration}`
+    const sourcePath = 'docs/specs/payment.md'
+    const previousArchivePath = `${iterationPath}/specs/payment.md`
+    const manifestPath = path.join(cwd, iterationPath, 'manifest.json')
+    const previousManifest: ArchiveManifest = {
+      iteration,
+      status: 'active',
+      summaryStatus: 'generated',
+      slugSource: {
+        type: 'markdown-title',
+        path: sourcePath,
+        title: '支付流程设计'
+      },
+      archiveRuns: [
+        {
+          runId: 'previous-run',
+          commit: 'abc123',
+          documents: [
+            {
+              sourcePath,
+              archivePath: previousArchivePath,
+              category: 'specs',
+              action: 'archive',
+              reason: 'previous',
+              sha256: 'a'.repeat(64)
+            }
+          ]
+        }
+      ]
+    }
+
+    await writeActiveIteration(cwd, {
+      iteration,
+      iterationPath,
+      updatedAt: '2026-06-27T00:00:00.000Z'
+    })
+    await mkdir(path.dirname(manifestPath), { recursive: true })
+    await writeFile(manifestPath, `${JSON.stringify(previousManifest, null, 2)}\n`, 'utf8')
+    await writeRepoFile(cwd, previousArchivePath, '# 旧归档\n\n旧证据\n')
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n新证据\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ArchiveManifest
+    const nextArchivePath = manifest.archiveRuns[1].documents[0].archivePath
+    expect(nextArchivePath).not.toBe(previousArchivePath)
+    await expect(readFile(path.join(cwd, previousArchivePath), 'utf8')).resolves.toContain('旧证据')
+    await expect(readFile(path.join(cwd, nextArchivePath!), 'utf8')).resolves.toContain('新证据')
+  })
+
+  it('assigns unique archive paths for same-basename docs in one staged batch', async () => {
+    const cwd = await makeTempRepo()
+    const firstPath = 'docs/specs/a/payment.md'
+    const secondPath = 'docs/specs/b/payment.md'
+
+    await writeRepoFile(cwd, firstPath, '# 支付流程 A\n\nA 证据\n')
+    await writeRepoFile(cwd, secondPath, '# 支付流程 B\n\nB 证据\n')
+    await execFileAsync('git', ['add', firstPath, secondPath], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+
+    const archivePaths = result.changedFiles ?? []
+    expect(archivePaths).toHaveLength(2)
+    expect(new Set(archivePaths).size).toBe(2)
+    await expect(readFile(path.join(cwd, archivePaths[0]), 'utf8')).resolves.toContain('A 证据')
+    await expect(readFile(path.join(cwd, archivePaths[1]), 'utf8')).resolves.toContain('B 证据')
+  })
+
   it('returns failure when target resolution is ambiguous', async () => {
     const cwd = await makeTempRepo()
     const firstIteration = '2026-06-26-支付流程设计'
