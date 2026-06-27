@@ -73,6 +73,34 @@ describe('manifest and iteration markdown', () => {
     expect(markdown).toContain('## Archived Documents')
     expect(markdown).toContain('- none')
   })
+
+  it('renders sourcePath and archivePath for archived documents', () => {
+    const manifest = buildManifest({
+      iteration: '2026-06-28-支付归档',
+      summaryStatus: 'generated',
+      slugSource: {
+        type: 'filename',
+        path: 'docs/specs/payment.md',
+        title: 'payment'
+      },
+      documents: [
+        {
+          sourcePath: 'docs/specs/payment.md',
+          archivePath: 'docs/iterations/2026-06-28-支付归档/payment.md',
+          category: 'specs',
+          action: 'archive',
+          reason: 'classified for archive',
+          sha256: 'a'.repeat(64)
+        }
+      ],
+      runId: '2026-06-28T10-00-00'
+    })
+
+    const markdown = renderIterationMarkdown(manifest)
+    expect(markdown).toContain(
+      '- archive: docs/specs/payment.md -> docs/iterations/2026-06-28-支付归档/payment.md'
+    )
+  })
 })
 
 describe('resolveIterationTarget', () => {
@@ -119,6 +147,66 @@ describe('resolveIterationTarget', () => {
       slugSource: {
         type: 'fallback',
         title: '2026-06-27-local'
+      }
+    })
+  })
+
+  it('reuses valid slugSource from local active manifest and normalizes iterationPath', async () => {
+    const cwd = await tempDir()
+    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
+    await mkdir(path.dirname(localActivePath), { recursive: true })
+    await writeFile(
+      localActivePath,
+      JSON.stringify(
+        {
+          iteration: '2026-06-27-local',
+          iterationPath: '../../escape',
+          updatedAt: '2026-06-27T10:00:00.000Z'
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const localManifestPath = path.join(cwd, 'docs', 'iterations', '2026-06-27-local', 'manifest.json')
+    await mkdir(path.dirname(localManifestPath), { recursive: true })
+    await writeFile(
+      localManifestPath,
+      JSON.stringify(
+        {
+          iteration: '2026-06-27-local',
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'markdown-title',
+            path: 'docs/specs/local-spec.md',
+            title: '本地收敛'
+          },
+          archiveRuns: [
+            {
+              runId: 'seed',
+              commit: 'pending',
+              documents: sampleArchiveDocs('docs/specs/local-spec.md')
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const docs = sampleArchiveDocs()
+    const target = await resolveIterationTarget(cwd, docs)
+
+    expect(target).toEqual({
+      iteration: '2026-06-27-local',
+      iterationPath: 'docs/iterations/2026-06-27-local',
+      slugSource: {
+        type: 'markdown-title',
+        path: 'docs/specs/local-spec.md',
+        title: '本地收敛'
       }
     })
   })
