@@ -44,5 +44,5 @@ export async function writeActiveIteration(cwd: string, state: ActiveIterationSt
 }
 
 export async function clearActiveIteration(cwd: string): Promise<void> {
-  await rm(statePath(cwd), { force: true })
+  await rm(statePath(cwd), { force: true, recursive: true })
 }

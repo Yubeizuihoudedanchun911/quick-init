@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
@@ -157,7 +157,60 @@ describe('runArchiveCommand', () => {
 
     await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('支付流程设计')
     await expect(access(manifestPath)).rejects.toThrow()
-    await expect(access(iterationMarkdownPath)).resolves.toBeUndefined()
+    await expect(access(iterationMarkdownPath)).rejects.toThrow()
+  })
+
+  it('restores previous active iteration when active state write fails', async () => {
+    const cwd = await makeTempRepo()
+    const sourcePath = 'docs/specs/payment.md'
+    const today = new Date().toISOString().slice(0, 10)
+    const expectedIteration = `${today}-${toIterationSlug('支付流程设计')}`
+    const iterationPath = `docs/iterations/${expectedIteration}`
+    const manifestPath = path.join(cwd, iterationPath, 'manifest.json')
+    const iterationMarkdownPath = path.join(cwd, iterationPath, 'iteration.md')
+    const activeStatePath = path.join(cwd, '.quick-init', 'state', 'active-iteration.json')
+    const previousActive = {
+      iteration: '2026-06-20-previous',
+      iterationPath: 'docs/iterations/2026-06-20-previous',
+      updatedAt: '2026-06-20T00:00:00.000Z'
+    }
+
+    await writeActiveIteration(cwd, previousActive)
+    await chmod(activeStatePath, 0o444)
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n设计内容\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(false)
+
+    await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('支付流程设计')
+    await expect(access(manifestPath)).rejects.toThrow()
+    await expect(access(iterationMarkdownPath)).rejects.toThrow()
+    const activeState = JSON.parse(await readFile(activeStatePath, 'utf8'))
+    expect(activeState).toEqual(previousActive)
+  })
+
+  it('clears active iteration state when write fails and no previous active state exists', async () => {
+    const cwd = await makeTempRepo()
+    const sourcePath = 'docs/specs/payment.md'
+    const today = new Date().toISOString().slice(0, 10)
+    const expectedIteration = `${today}-${toIterationSlug('支付流程设计')}`
+    const iterationPath = `docs/iterations/${expectedIteration}`
+    const manifestPath = path.join(cwd, iterationPath, 'manifest.json')
+    const iterationMarkdownPath = path.join(cwd, iterationPath, 'iteration.md')
+    const activeStatePath = path.join(cwd, '.quick-init', 'state', 'active-iteration.json')
+
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n设计内容\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+    await mkdir(activeStatePath, { recursive: true })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(false)
+
+    await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('支付流程设计')
+    await expect(access(manifestPath)).rejects.toThrow()
+    await expect(access(iterationMarkdownPath)).rejects.toThrow()
+    await expect(readFile(activeStatePath)).rejects.toThrow()
   })
 
   it('keeps _README staged docs as skip and continues to write manifest', async () => {

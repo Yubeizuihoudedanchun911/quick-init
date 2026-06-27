@@ -22,6 +22,31 @@ interface MovedArchiveFile {
   archivePath: string
 }
 
+async function rollbackActiveIteration(
+  cwd: string,
+  touched: boolean,
+  previousActive: Awaited<ReturnType<typeof readActiveIteration>>
+): Promise<void> {
+  if (!touched) {
+    return
+  }
+
+  if (previousActive) {
+    try {
+      await writeActiveIteration(cwd, previousActive)
+    } catch {
+      // best-effort rollback; ignore active state restore failures
+    }
+    return
+  }
+
+  try {
+    await clearActiveIteration(cwd)
+  } catch {
+    // best-effort rollback; ignore active state clear failures
+  }
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'Failed to run archive command'
 }
@@ -85,7 +110,7 @@ async function rollbackWriteFile(filePath: string, previousContent: string | nul
       await writeFile(filePath, previousContent, 'utf8')
       return
     }
-    await rm(filePath, { force: true })
+    await rm(filePath, { force: true, recursive: true })
   } catch {
     // best-effort rollback
   }
@@ -139,7 +164,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
   const movedArchiveFiles: MovedArchiveFile[] = []
   const stagedRestoreTargets: string[] = []
   const createdFiles: string[] = []
-  let activeIterationWritten = false
+  let activeIterationTouched = false
 
   try {
     const processedDocuments: ArchiveDocument[] = []
@@ -191,15 +216,15 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
     await mkdir(iterationPath, { recursive: true })
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     createdFiles.push(manifestPath)
-    await writeFile(iterationMarkdownPath, iterationMarkdown, 'utf8')
     createdFiles.push(iterationMarkdownPath)
+    await writeFile(iterationMarkdownPath, iterationMarkdown, 'utf8')
 
+    activeIterationTouched = true
     await writeActiveIteration(cwd, {
       iteration: target.iteration,
       iterationPath: target.iterationPath,
       updatedAt: new Date().toISOString()
     })
-    activeIterationWritten = true
 
     if (config.archive.autoStage) {
       await runGit(cwd, ['add', '--', target.iterationPath])
@@ -240,14 +265,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
     if (config.archive.autoStage) {
       await safeUnstage(cwd, [target.iterationPath, ...stagedRestoreTargets])
     }
-
-    if (activeIterationWritten) {
-      if (previousActive) {
-        await writeActiveIteration(cwd, previousActive)
-      } else {
-        await clearActiveIteration(cwd)
-      }
-    }
+    await rollbackActiveIteration(cwd, activeIterationTouched, previousActive)
 
     return { ok: false, message: errorMessage(error) }
   }
