@@ -2,7 +2,7 @@ import { access, mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { CommandResult, GeneratedFile } from '../core/types.js'
 import { ensureGitRepository, runGit } from '../git/git.js'
-import { installPreCommitHook } from '../git/hooks.js'
+import { installPreCommitHook, resolvePreCommitHookPath } from '../git/hooks.js'
 import { scopedCommit } from '../git/scopedCommit.js'
 import { ensureLocalConfig } from '../local/config.js'
 import { ensureQuickInitIgnored } from '../local/gitignore.js'
@@ -54,6 +54,16 @@ export async function runInitCommand(description: string, cwd: string): Promise<
   const gitState = await ensureGitRepository(cwd)
   const spec = deriveInitializationSpec(description, cwd)
   const generatedFiles = buildGeneratedFiles(spec)
+  const hookPath = await resolvePreCommitHookPath(cwd)
+  const now = new Date()
+  const archiveFiles = buildInitialArchiveFiles(generatedFiles, gitState.initialized, true, hookPath, now)
+
+  for (const file of archiveFiles) {
+    const fullPath = path.join(cwd, file.path)
+    if (await fileExists(fullPath)) {
+      return { ok: false, message: `Initial archive file already exists: ${file.path}` }
+    }
+  }
 
   for (const file of generatedFiles) {
     await writeGeneratedFile(cwd, file)
@@ -62,15 +72,7 @@ export async function runInitCommand(description: string, cwd: string): Promise<
   await ensureLocalConfig(cwd)
   await ensureQuickInitIgnored(cwd)
   try {
-    const hookPath = await installPreCommitHook(cwd)
-    const now = new Date()
-    const archiveFiles = buildInitialArchiveFiles(generatedFiles, gitState.initialized, true, hookPath, now)
-    for (const file of archiveFiles) {
-      const fullPath = path.join(cwd, file.path)
-      if (await fileExists(fullPath)) {
-        return { ok: false, message: `Initial archive file already exists: ${file.path}` }
-      }
-    }
+    await installPreCommitHook(cwd)
     const createdArchiveFiles: string[] = []
     for (const file of archiveFiles) {
       await writeGeneratedFile(cwd, file)

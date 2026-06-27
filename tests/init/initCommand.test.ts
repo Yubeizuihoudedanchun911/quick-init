@@ -58,7 +58,7 @@ describe('runInitCommand', () => {
       ['rev-parse', '--git-path', 'hooks/pre-commit'],
       { cwd },
     )
-    expect(manifest.localFiles).toContain(hookPath.trim())
+    expect(manifest.localFiles).toContain(path.resolve(cwd, hookPath.trim()))
 
     const { stdout } = await execFileAsync('git', ['log', '--oneline', '-1'], { cwd })
     expect(stdout).toContain('chore: initialize quick-init governance')
@@ -80,12 +80,12 @@ describe('runInitCommand', () => {
 
   it('cleans up archive files when initial scoped commit fails', async () => {
     const cwd = await makeTempRepo()
-    await writeFile(path.join(cwd, '.git', 'hooks', 'prepare-commit-msg'), '#!/usr/bin/env bash\nexit 1\n', 'utf8')
-    await chmod(path.join(cwd, '.git', 'hooks', 'prepare-commit-msg'), 0o755)
+    await execFileAsync('git', ['config', 'user.name', ''], { cwd })
+    await execFileAsync('git', ['config', 'user.email', ''], { cwd })
 
     const result = await runInitCommand('TypeScript CLI 工具', cwd)
     expect(result.ok).toBe(false)
-    expect(result.message).toContain('Command failed: git commit')
+    expect(result.message).toContain('Author identity unknown')
     await expect(execFileAsync('git', ['log', '--oneline', '-1'], { cwd })).rejects.toThrow()
     const { stdout: staged } = await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd })
     const stagedFiles = staged.split('\n').map((line) => line.trim()).filter(Boolean)

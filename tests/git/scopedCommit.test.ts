@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, writeFile } from 'node:fs/promises'
+import { chmod, readFile, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -63,13 +63,34 @@ describe('scopedCommit', () => {
   it('can skip hooks for bootstrap commits', async () => {
     const cwd = await makeTempRepo()
     await writeRepoFile(cwd, 'CLAUDE.md', '# Claude\n')
-    await writeFile(path.join(cwd, '.git/hooks/pre-commit'), '#!/usr/bin/env bash\nexit 1\n', 'utf8')
-    await chmod(path.join(cwd, '.git/hooks/pre-commit'), 0o755)
+    await writeFile(path.join(cwd, '.git/hooks/prepare-commit-msg'), '#!/usr/bin/env bash\nexit 1\n', 'utf8')
+    await chmod(path.join(cwd, '.git/hooks/prepare-commit-msg'), 0o755)
 
     const result = await scopedCommit(cwd, ['CLAUDE.md'], 'docs: bootstrap commit', { skipHooks: true })
     expect(result.ok).toBe(true)
 
     const { stdout } = await execFileAsync('git', ['log', '--oneline', '-1'], { cwd })
     expect(stdout).toContain('docs: bootstrap commit')
+  })
+
+  it('runs hooks by default and fails when prepare-commit-msg fails', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, 'CLAUDE.md', '# Claude\n')
+    await writeFile(
+      path.join(cwd, '.git/hooks/prepare-commit-msg'),
+      '#!/usr/bin/env bash\necho prepare-commit-msg >>.prepare-commit-msg-ran\nexit 1\n',
+      'utf8',
+    )
+    await chmod(path.join(cwd, '.git/hooks/prepare-commit-msg'), 0o755)
+
+    const result = await scopedCommit(cwd, ['CLAUDE.md'], 'docs: scoped commit')
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('Command failed: git commit')
+
+    const marker = await readFile(path.join(cwd, '.prepare-commit-msg-ran'), 'utf8')
+    expect(marker.trim()).toContain('prepare-commit-msg')
+
+    const { stdout: cached } = await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd })
+    expect(cached).toContain('CLAUDE.md')
   })
 })

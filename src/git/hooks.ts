@@ -9,6 +9,11 @@ quick-init archive --staged
 ${END}
 `
 
+export async function resolvePreCommitHookPath(cwd: string): Promise<string> {
+  const hookPathRelative = (await runGit(cwd, ['rev-parse', '--git-path', 'hooks/pre-commit'])).trim()
+  return path.resolve(cwd, hookPathRelative)
+}
+
 export async function installPreCommitHook(cwd: string): Promise<string> {
   const hookPathRelative = (await runGit(cwd, ['rev-parse', '--git-path', 'hooks/pre-commit'])).trim()
   const hookPath = path.resolve(cwd, hookPathRelative)

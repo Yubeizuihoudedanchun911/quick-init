@@ -1,5 +1,7 @@
 import { CommandResult } from '../core/types.js'
+import { mkdtemp, rm } from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
 import { runGit } from './git.js'
 
 const QUICK_INIT_DIR = '.quick-init'
@@ -59,12 +61,23 @@ export async function scopedCommit(
     }
 
     await runGit(cwd, ['diff', '--cached', '--check'])
-    const commitArgs = ['commit']
     if (options.skipHooks) {
-      commitArgs.push('--no-verify')
+      const hookPath = await mkdtemp(path.join(os.tmpdir(), 'quick-init-hooks-'))
+      try {
+        await runGit(cwd, [
+          '-c',
+          `core.hooksPath=${hookPath}`,
+          'commit',
+          '--no-verify',
+          '-m',
+          message,
+        ])
+      } finally {
+        await rm(hookPath, { recursive: true, force: true })
+      }
+    } else {
+      await runGit(cwd, ['commit', '-m', message])
     }
-    commitArgs.push('-m', message)
-    await runGit(cwd, commitArgs)
     return { ok: true, message, changedFiles: paths }
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
