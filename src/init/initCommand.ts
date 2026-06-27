@@ -27,6 +27,12 @@ export async function runInitCommand(description: string, cwd: string): Promise<
 
   await ensureLocalConfig(cwd)
   await ensureQuickInitIgnored(cwd)
+  try {
+    await installPreCommitHook(cwd)
+  } catch (error) {
+    const message = error instanceof Error && error.message ? error.message : 'Unknown hook installation failure'
+    return { ok: false, message: `Failed to install pre-commit hook: ${message}` }
+  }
 
   const archiveFiles = buildInitialArchiveFiles(generatedFiles, gitState.initialized, true)
   for (const file of archiveFiles) {
@@ -38,11 +44,8 @@ export async function runInitCommand(description: string, cwd: string): Promise<
     ...archiveFiles.map((file) => file.path),
     '.gitignore'
   ]
-  const result = await scopedCommit(cwd, commitPaths, 'chore: initialize quick-init governance')
-  if (!result.ok) {
-    return result
-  }
-
-  await installPreCommitHook(cwd)
+  const result = await scopedCommit(cwd, commitPaths, 'chore: initialize quick-init governance', {
+    skipHooks: true
+  })
   return result
 }

@@ -29,7 +29,16 @@ function errorMessage(error: unknown): string {
   return 'Scoped commit failed'
 }
 
-export async function scopedCommit(cwd: string, paths: string[], message: string): Promise<CommandResult> {
+export interface ScopedCommitOptions {
+  skipHooks?: boolean
+}
+
+export async function scopedCommit(
+  cwd: string,
+  paths: string[],
+  message: string,
+  options: ScopedCommitOptions = {}
+): Promise<CommandResult> {
   if (paths.length === 0) {
     return { ok: false, message: 'No paths provided for scoped commit' }
   }
@@ -50,7 +59,12 @@ export async function scopedCommit(cwd: string, paths: string[], message: string
     }
 
     await runGit(cwd, ['diff', '--cached', '--check'])
-    await runGit(cwd, ['commit', '-m', message])
+    const commitArgs = ['commit']
+    if (options.skipHooks) {
+      commitArgs.push('--no-verify')
+    }
+    commitArgs.push('-m', message)
+    await runGit(cwd, commitArgs)
     return { ok: true, message, changedFiles: paths }
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
