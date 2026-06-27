@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { runGit } from './git.js'
 
 const START = '# quick-init hook start'
 const END = '# quick-init hook end'
@@ -9,8 +10,8 @@ ${END}
 `
 
 export async function installPreCommitHook(cwd: string): Promise<void> {
-  const hooksDir = path.join(cwd, '.git/hooks')
-  const hookPath = path.join(hooksDir, 'pre-commit')
+  const hookPath = path.resolve(cwd, (await runGit(cwd, ['rev-parse', '--git-path', 'hooks/pre-commit'])).trim())
+  const hooksDir = path.dirname(hookPath)
 
   await mkdir(hooksDir, { recursive: true })
 

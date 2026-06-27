@@ -19,4 +19,25 @@ describe('scopedCommit', () => {
     expect(stdout).toContain('?? user-work.md')
     expect(stdout).not.toContain('CLAUDE.md')
   })
+
+  it('refuses to scope commit .quick-init paths and leaves them unstaged', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, '.quick-init/config.json', '{"mode":"local"}\n')
+
+    const result = await scopedCommit(cwd, ['.quick-init/config.json'], 'docs: rejected')
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('.quick-init')
+
+    const { stdout: cached } = await execFileAsync('git', ['diff', '--cached', '--name-only'], {
+      cwd,
+    })
+    expect(cached.trim()).toBe('')
+
+    const { stdout: status } = await execFileAsync(
+      'git',
+      ['status', '--short', '--untracked-files=all'],
+      { cwd },
+    )
+    expect(status).toContain('?? .quick-init/config.json')
+  })
 })
