@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -7,6 +7,7 @@ import { buildManifest } from '../../src/archive/manifest.js'
 import { resolveIterationTarget } from '../../src/archive/activeIteration.js'
 import { renderIterationMarkdown } from '../../src/archive/iterationText.js'
 import { toIterationSlug } from '../../src/archive/slug.js'
+import { writeActiveIteration } from '../../src/local/state.js'
 
 import type { ArchiveDocument, ArchiveManifest } from '../../src/core/types.js'
 
@@ -104,6 +105,15 @@ describe('manifest and iteration markdown', () => {
 })
 
 describe('resolveIterationTarget', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-27T00:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('works when markdownContentByPath is not provided', async () => {
     const cwd = await tempDir()
     const docs = sampleArchiveDocs()
@@ -121,21 +131,11 @@ describe('resolveIterationTarget', () => {
 
   it('uses local active iteration file when valid', async () => {
     const cwd = await tempDir()
-    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
-    await mkdir(path.dirname(localActivePath), { recursive: true })
-    await writeFile(
-      localActivePath,
-      JSON.stringify(
-        {
-          iteration: '2026-06-27-local',
-          iterationPath: 'docs/iterations/2026-06-27-local',
-          updatedAt: '2026-06-27T10:00:00.000Z'
-        },
-        null,
-        2
-      ),
-      'utf8'
-    )
+    await writeActiveIteration(cwd, {
+      iteration: '2026-06-27-local',
+      iterationPath: 'docs/iterations/2026-06-27-local',
+      updatedAt: '2026-06-27T10:00:00.000Z'
+    })
 
     const docs = sampleArchiveDocs()
     const markdownByPath = new Map([['docs/specs/payment.md', '# 支付流程设计\n...']])
@@ -153,21 +153,11 @@ describe('resolveIterationTarget', () => {
 
   it('ignores local active iteration with path traversal value and falls back to docs filename slug', async () => {
     const cwd = await tempDir()
-    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
-    await mkdir(path.dirname(localActivePath), { recursive: true })
-    await writeFile(
-      localActivePath,
-      JSON.stringify(
-        {
-          iteration: '../../escape',
-          iterationPath: 'docs/iterations/../../escape',
-          updatedAt: '2026-06-27T10:00:00.000Z'
-        },
-        null,
-        2
-      ),
-      'utf8'
-    )
+    await writeActiveIteration(cwd, {
+      iteration: '../../escape',
+      iterationPath: 'docs/iterations/../../escape',
+      updatedAt: '2026-06-27T10:00:00.000Z'
+    })
 
     const docs = sampleArchiveDocs()
     const target = await resolveIterationTarget(cwd, docs)
@@ -186,21 +176,11 @@ describe('resolveIterationTarget', () => {
 
   it('reuses valid slugSource from local active manifest and normalizes iterationPath', async () => {
     const cwd = await tempDir()
-    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
-    await mkdir(path.dirname(localActivePath), { recursive: true })
-    await writeFile(
-      localActivePath,
-      JSON.stringify(
-        {
-          iteration: '2026-06-27-local',
-          iterationPath: '../../escape',
-          updatedAt: '2026-06-27T10:00:00.000Z'
-        },
-        null,
-        2
-      ),
-      'utf8'
-    )
+    await writeActiveIteration(cwd, {
+      iteration: '2026-06-27-local',
+      iterationPath: '../../escape',
+      updatedAt: '2026-06-27T10:00:00.000Z'
+    })
 
     const localManifestPath = path.join(cwd, 'docs', 'iterations', '2026-06-27-local', 'manifest.json')
     await mkdir(path.dirname(localManifestPath), { recursive: true })
@@ -246,21 +226,11 @@ describe('resolveIterationTarget', () => {
 
   it('ignores local iterationPath and constrains resolved iterationPath to docs/iterations/<iteration>', async () => {
     const cwd = await tempDir()
-    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
-    await mkdir(path.dirname(localActivePath), { recursive: true })
-    await writeFile(
-      localActivePath,
-      JSON.stringify(
-        {
-          iteration: '2026-06-27-escape',
-          iterationPath: '../../escape',
-          updatedAt: '2026-06-27T10:00:00.000Z'
-        },
-        null,
-        2
-      ),
-      'utf8'
-    )
+    await writeActiveIteration(cwd, {
+      iteration: '2026-06-27-escape',
+      iterationPath: '../../escape',
+      updatedAt: '2026-06-27T10:00:00.000Z'
+    })
 
     const docs = sampleArchiveDocs()
     const target = await resolveIterationTarget(cwd, docs)
@@ -277,21 +247,11 @@ describe('resolveIterationTarget', () => {
 
   it('falls back to fallback slugSource when local active manifest has invalid slugSource', async () => {
     const cwd = await tempDir()
-    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
-    await mkdir(path.dirname(localActivePath), { recursive: true })
-    await writeFile(
-      localActivePath,
-      JSON.stringify(
-        {
-          iteration: '2026-06-27-local',
-          iterationPath: 'docs/iterations/2026-06-27-local',
-          updatedAt: '2026-06-27T10:00:00.000Z'
-        },
-        null,
-        2
-      ),
-      'utf8'
-    )
+    await writeActiveIteration(cwd, {
+      iteration: '2026-06-27-local',
+      iterationPath: 'docs/iterations/2026-06-27-local',
+      updatedAt: '2026-06-27T10:00:00.000Z'
+    })
     const localManifestPath = path.join(cwd, 'docs', 'iterations', '2026-06-27-local', 'manifest.json')
     await mkdir(path.dirname(localManifestPath), { recursive: true })
     await writeFile(
@@ -323,6 +283,25 @@ describe('resolveIterationTarget', () => {
         type: 'fallback',
         title: '2026-06-27-local'
       }
+    })
+  })
+
+  it('falls back to docs-based inference when local active iteration JSON is invalid', async () => {
+    const cwd = await tempDir()
+    const statePath = path.join(cwd, '.quick-init', 'state', 'active-iteration.json')
+    await mkdir(path.dirname(statePath), { recursive: true })
+    await writeFile(statePath, '{invalid-json', 'utf8')
+
+    const docs = sampleArchiveDocs('docs/specs/payment.md')
+    const markdownByPath = new Map([['docs/specs/payment.md', '# 支付流程设计\n详细内容']])
+    const target = await resolveIterationTarget(cwd, docs, markdownByPath)
+
+    const expectedIteration = `${new Date().toISOString().slice(0, 10)}-${toIterationSlug('支付流程设计')}`
+    expect(target.iteration).toBe(expectedIteration)
+    expect(target.slugSource).toEqual({
+      type: 'markdown-title',
+      path: 'docs/specs/payment.md',
+      title: '支付流程设计'
     })
   })
 

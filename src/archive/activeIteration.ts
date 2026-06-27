@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { ArchiveDocument, ArchiveManifest } from '../core/types.js'
+import { readActiveIteration } from '../local/state.js'
 import { extractMarkdownTitle } from './markdown.js'
 import { toIterationSlug } from './slug.js'
 
@@ -9,12 +10,6 @@ export interface IterationTarget {
   iteration: string
   iterationPath: string
   slugSource: ArchiveManifest['slugSource']
-}
-
-interface LocalActiveIteration {
-  iteration: string
-  iterationPath?: string
-  updatedAt?: string
 }
 
 const validSlugSourceTypes = [
@@ -26,10 +21,6 @@ const validSlugSourceTypes = [
 ] as const
 
 type SlugSourceType = (typeof validSlugSourceTypes)[number]
-
-function localActivePath(cwd: string): string {
-  return path.join(cwd, '.quick-init', 'active-iteration.json')
-}
 
 function sanitizeLocalIteration(iteration: string): string | null {
   const trimmed = iteration.trim()
@@ -47,34 +38,6 @@ function sanitizeLocalIteration(iteration: string): string | null {
   }
 
   return trimmed
-}
-
-async function readActiveLocalIteration(cwd: string): Promise<LocalActiveIteration | null> {
-  try {
-    const raw = await readFile(localActivePath(cwd), 'utf8')
-    const data = JSON.parse(raw) as Partial<LocalActiveIteration>
-
-    if (
-      typeof data === 'object' &&
-      data !== null &&
-      typeof data.iteration === 'string'
-    ) {
-      const iteration = sanitizeLocalIteration(data.iteration)
-      if (!iteration) {
-        return null
-      }
-
-      return {
-        iteration,
-        iterationPath: typeof data.iterationPath === 'string' ? data.iterationPath : undefined,
-        updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined
-      }
-    }
-
-    return null
-  } catch {
-    return null
-  }
 }
 
 function isValidSlugSource(slugSource: unknown): slugSource is ArchiveManifest['slugSource'] {
@@ -200,16 +163,17 @@ export async function resolveIterationTarget(
   docs: ArchiveDocument[],
   markdownContentByPath: Map<string, string> = new Map()
 ): Promise<IterationTarget> {
-  const local = await readActiveLocalIteration(cwd)
-  if (local) {
-    const iterationPath = `docs/iterations/${local.iteration}`
+  const local = await readActiveIteration(cwd)
+  const safeLocalIteration = local ? sanitizeLocalIteration(local.iteration) : null
+  if (safeLocalIteration) {
+    const iterationPath = `docs/iterations/${safeLocalIteration}`
     const manifest = await readIterationManifest(cwd, iterationPath)
-    let localSlugSource: ArchiveManifest['slugSource'] = { type: 'fallback', title: local.iteration }
+    let localSlugSource: ArchiveManifest['slugSource'] = { type: 'fallback', title: safeLocalIteration }
     if (manifest && isValidSlugSource(manifest.slugSource)) {
       localSlugSource = manifest.slugSource
     }
     return {
-      iteration: local.iteration,
+      iteration: safeLocalIteration,
       iterationPath,
       slugSource: localSlugSource
     }
