@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { access, chmod, mkdtemp, readFile, readdir } from 'node:fs/promises'
+import { access, chmod, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
@@ -52,6 +52,13 @@ describe('runInitCommand', () => {
     )
     expect(manifest.hookInstalled).toBe(true)
     expect(manifest.gitInitialized).toBe(true)
+    expect(manifest.localFiles).toContain('.quick-init/config.json')
+    const { stdout: hookPath } = await execFileAsync(
+      'git',
+      ['rev-parse', '--git-path', 'hooks/pre-commit'],
+      { cwd },
+    )
+    expect(manifest.localFiles).toContain(hookPath.trim())
 
     const { stdout } = await execFileAsync('git', ['log', '--oneline', '-1'], { cwd })
     expect(stdout).toContain('chore: initialize quick-init governance')
@@ -69,6 +76,26 @@ describe('runInitCommand', () => {
 
     const files = await listFiles(path.join(cwd, 'docs/iterations'))
     expect(files.some((file) => file.endsWith('manifest.json'))).toBe(false)
+  })
+
+  it('cleans up archive files when initial scoped commit fails', async () => {
+    const cwd = await makeTempRepo()
+    await writeFile(path.join(cwd, '.git', 'hooks', 'prepare-commit-msg'), '#!/usr/bin/env bash\nexit 1\n', 'utf8')
+    await chmod(path.join(cwd, '.git', 'hooks', 'prepare-commit-msg'), 0o755)
+
+    const result = await runInitCommand('TypeScript CLI 工具', cwd)
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('Command failed: git commit')
+    await expect(execFileAsync('git', ['log', '--oneline', '-1'], { cwd })).rejects.toThrow()
+
+    let archiveFiles: string[] = []
+    try {
+      archiveFiles = await listFiles(path.join(cwd, 'docs/iterations'))
+    } catch {
+      archiveFiles = []
+    }
+    expect(archiveFiles.some((file) => file.endsWith('manifest.json'))).toBe(false)
+    expect(archiveFiles.some((file) => file.endsWith('iteration.md'))).toBe(false)
   })
 
   it('does not commit unrelated dirty files', async () => {

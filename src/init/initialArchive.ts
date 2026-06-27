@@ -5,6 +5,7 @@ export function buildInitialArchiveFiles(
   generatedFiles: GeneratedFile[],
   gitInitialized: boolean,
   hookInstalled: boolean,
+  hookPath: string,
   now = new Date()
 ): GeneratedFile[] {
   const iteration = `${now.toISOString().slice(0, 10)}-初始化工程治理`
@@ -17,7 +18,7 @@ export function buildInitialArchiveFiles(
     type: 'initialization',
     summaryStatus: 'generated',
     generatedFiles: generatedPaths,
-    localFiles: ['.quick-init/config.json', '.git/hooks/pre-commit'],
+    localFiles: ['.quick-init/config.json', hookPath],
     hookInstalled,
     gitInitialized,
     sha256: createHash('sha256').update(generatedPaths.join('\n')).digest('hex')
@@ -35,7 +36,7 @@ ${generatedPaths.map((item) => `- ${item}`).join('\n')}
 ## Local Files
 
 - .quick-init/config.json
-- .git/hooks/pre-commit
+- ${hookPath}
 
 ## Notes
 

@@ -46,8 +46,9 @@ describe('installPreCommitHook', () => {
       { cwd: worktreeDir },
     )
     const hookPath = path.resolve(worktreeDir, stdout.trim())
+    const installedHookPath = await installPreCommitHook(worktreeDir)
 
-    await installPreCommitHook(worktreeDir)
+    expect(installedHookPath).toBe(stdout.trim())
 
     const gitDirStat = await lstat(path.join(worktreeDir, '.git'))
     expect(gitDirStat.isFile()).toBe(true)

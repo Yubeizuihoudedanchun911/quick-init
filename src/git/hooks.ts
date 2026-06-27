@@ -9,8 +9,9 @@ quick-init archive --staged
 ${END}
 `
 
-export async function installPreCommitHook(cwd: string): Promise<void> {
-  const hookPath = path.resolve(cwd, (await runGit(cwd, ['rev-parse', '--git-path', 'hooks/pre-commit'])).trim())
+export async function installPreCommitHook(cwd: string): Promise<string> {
+  const hookPathRelative = (await runGit(cwd, ['rev-parse', '--git-path', 'hooks/pre-commit'])).trim()
+  const hookPath = path.resolve(cwd, hookPathRelative)
   const hooksDir = path.dirname(hookPath)
 
   await mkdir(hooksDir, { recursive: true })
@@ -28,4 +29,5 @@ export async function installPreCommitHook(cwd: string): Promise<void> {
   }
 
   await chmod(hookPath, 0o755)
+  return hookPathRelative
 }
