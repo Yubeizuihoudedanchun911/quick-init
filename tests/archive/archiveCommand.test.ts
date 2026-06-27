@@ -349,6 +349,81 @@ describe('resolveIterationTarget', () => {
     })
   })
 
+  it('throws when multiple active manifests match the same slug', async () => {
+    const cwd = await tempDir()
+    const docs: ArchiveDocument[] = sampleArchiveDocs('docs/specs/payment.md')
+    const firstIteration = '2026-06-26-payment'
+    const secondIteration = '2026-06-27-payment'
+
+    const firstManifestPath = path.join(cwd, 'docs', 'iterations', firstIteration, 'manifest.json')
+    const secondManifestPath = path.join(cwd, 'docs', 'iterations', secondIteration, 'manifest.json')
+    await mkdir(path.dirname(firstManifestPath), { recursive: true })
+    await mkdir(path.dirname(secondManifestPath), { recursive: true })
+    await writeFile(
+      firstManifestPath,
+      JSON.stringify(
+        {
+          iteration: firstIteration,
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'markdown-title',
+            path: 'docs/specs/old-spec.md',
+            title: '支付流程设计'
+          },
+          archiveRuns: [
+            {
+              runId: 'seed',
+              commit: 'pending',
+              documents: sampleArchiveDocs('docs/specs/old-spec.md')
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+    await writeFile(
+      secondManifestPath,
+      JSON.stringify(
+        {
+          iteration: secondIteration,
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'filename',
+            path: 'docs/specs/other-spec.md',
+            title: 'payment'
+          },
+          archiveRuns: [
+            {
+              runId: 'seed',
+              commit: 'pending',
+              documents: sampleArchiveDocs('docs/specs/other-spec.md')
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    let error: unknown
+    try {
+      await resolveIterationTarget(cwd, docs)
+    } catch (e) {
+      error = e
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    const message = String((error as Error).message)
+    expect(message).toContain('Multiple active iterations match')
+    expect(message).toContain(firstIteration)
+    expect(message).toContain(secondIteration)
+  })
+
   it('ignores suffix-matched active manifests with non-date formatting and creates a new iteration', async () => {
     const cwd = await tempDir()
     const docs: ArchiveDocument[] = sampleArchiveDocs('docs/specs/子标题.md')

@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { ArchiveDocument, ArchiveManifest } from '../core/types.js'
+import { QuickInitError } from '../core/errors.js'
 import { readActiveIteration } from '../local/state.js'
 import { extractMarkdownTitle } from './markdown.js'
 import { toIterationSlug } from './slug.js'
@@ -182,7 +183,16 @@ export async function resolveIterationTarget(
   const primaryDoc = docs.find((doc) => doc.action === 'archive') ?? docs[0]
   const { slugSource, slug } = sourceToSlugSource(primaryDoc, markdownContentByPath)
   const manifests = await readActiveManifests(cwd)
-  const matchedManifest = manifests.find((manifest) => iterationSlug(manifest.iteration) === slug)
+  const matchedManifests = manifests.filter((manifest) => iterationSlug(manifest.iteration) === slug)
+
+  if (matchedManifests.length > 1) {
+    const candidateIterations = matchedManifests.map((manifest) => manifest.iteration).join(', ')
+    throw new QuickInitError(
+      `Multiple active iterations match slug "${slug}": ${candidateIterations}`
+    )
+  }
+
+  const matchedManifest = matchedManifests[0]
 
   if (matchedManifest) {
     return {
