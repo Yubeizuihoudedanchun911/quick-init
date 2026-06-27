@@ -46,12 +46,35 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
   }
 }
 
+function readErrorMessage(filePath: string, error: unknown): string {
+  return `Failed to read staged markdown "${filePath}": ${errorMessage(error)}`
+}
+
 async function safeUnstage(cwd: string, paths: string[]): Promise<void> {
   for (const changedPath of paths) {
     try {
       await runGit(cwd, ['reset', '--', changedPath])
     } catch {
       // best-effort rollback; ignore staging unstage failures
+    }
+  }
+}
+
+async function unstageSourcePathsFromCache(cwd: string, paths: string[]): Promise<void> {
+  if (paths.length === 0) {
+    return
+  }
+
+  try {
+    await runGit(cwd, ['rm', '--cached', '--ignore-unmatch', '--', ...paths])
+    return
+  } catch {
+    for (const sourcePath of paths) {
+      try {
+        await runGit(cwd, ['reset', '--', sourcePath])
+      } catch {
+        // best-effort rollback; ignore failures removing staged source paths
+      }
     }
   }
 }
@@ -84,13 +107,17 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
   }
 
   const markdownByPath = new Map<string, string>()
-  const documents = await Promise.all(
-    stagedMarkdownFiles.map(async (sourcePath) => {
-      const content = await readFile(path.join(cwd, sourcePath), 'utf8')
-      markdownByPath.set(sourcePath, content)
-      return classifyMarkdown(sourcePath, content)
-    })
-  )
+  const documents: ArchiveDocument[] = []
+  for (const sourcePath of stagedMarkdownFiles) {
+    let content: string
+    try {
+      content = await readFile(path.join(cwd, sourcePath), 'utf8')
+    } catch (error) {
+      return { ok: false, message: readErrorMessage(sourcePath, error) }
+    }
+    markdownByPath.set(sourcePath, content)
+    documents.push(classifyMarkdown(sourcePath, content))
+  }
 
   let target
   try {
@@ -163,8 +190,9 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
 
     await mkdir(iterationPath, { recursive: true })
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    createdFiles.push(manifestPath)
     await writeFile(iterationMarkdownPath, iterationMarkdown, 'utf8')
-    createdFiles.push(manifestPath, iterationMarkdownPath)
+    createdFiles.push(iterationMarkdownPath)
 
     await writeActiveIteration(cwd, {
       iteration: target.iteration,
@@ -175,9 +203,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
 
     if (config.archive.autoStage) {
       await runGit(cwd, ['add', '--', target.iterationPath])
-      if (stagedRestoreTargets.length > 0) {
-        await runGit(cwd, ['add', '-u', '--', ...stagedRestoreTargets])
-      }
+      await unstageSourcePathsFromCache(cwd, stagedRestoreTargets)
     }
 
     return {
