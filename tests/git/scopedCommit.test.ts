@@ -40,4 +40,21 @@ describe('scopedCommit', () => {
     )
     expect(status).toContain('?? .quick-init/config.json')
   })
+
+  it('does not commit or leave staged .quick-init files when scoping the repository root', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, 'CLAUDE.md', '# Claude\n')
+    await writeRepoFile(cwd, '.quick-init/config.json', '{"mode":"local"}\n')
+
+    const result = await scopedCommit(cwd, ['.'], 'docs: broad scope')
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('.quick-init')
+
+    const { stdout: cached } = await execFileAsync('git', ['diff', '--cached', '--name-only'], {
+      cwd,
+    })
+    expect(cached).not.toContain('.quick-init/config.json')
+
+    await expect(execFileAsync('git', ['rev-parse', '--verify', 'HEAD'], { cwd })).rejects.toThrow()
+  })
 })

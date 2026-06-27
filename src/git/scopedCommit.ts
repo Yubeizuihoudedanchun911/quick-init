@@ -9,6 +9,19 @@ function isQuickInitPath(filePath: string): boolean {
   return segments.includes(QUICK_INIT_DIR)
 }
 
+function isProtectedQuickInitStagedPath(filePath: string): boolean {
+  return filePath === QUICK_INIT_DIR || filePath.startsWith(`${QUICK_INIT_DIR}/`)
+}
+
+async function unstageProtectedPaths(cwd: string, paths: string[]): Promise<void> {
+  try {
+    await runGit(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+    await runGit(cwd, ['reset', '--', ...paths])
+  } catch {
+    await runGit(cwd, ['rm', '--cached', '--', ...paths])
+  }
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message
@@ -27,6 +40,15 @@ export async function scopedCommit(cwd: string, paths: string[], message: string
 
   try {
     await runGit(cwd, ['add', '--', ...paths])
+    const stagedOutput = await runGit(cwd, ['diff', '--cached', '--name-only'])
+    const stagedPaths = stagedOutput.split('\n').map((line) => line.trim()).filter(Boolean)
+    const protectedPaths = stagedPaths.filter(isProtectedQuickInitStagedPath)
+
+    if (protectedPaths.length > 0) {
+      await unstageProtectedPaths(cwd, protectedPaths)
+      return { ok: false, message: 'Refusing to scope commit .quick-init paths' }
+    }
+
     await runGit(cwd, ['diff', '--cached', '--check'])
     await runGit(cwd, ['commit', '-m', message])
     return { ok: true, message, changedFiles: paths }
