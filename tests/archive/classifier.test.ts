@@ -20,6 +20,13 @@ describe('classifyMarkdown', () => {
     expect(doc.archivePath).toBeNull()
   })
 
+  it("classifies root README.md as project summarize-only", () => {
+    const doc = classifyMarkdown('README.md', '# Quick Init')
+    expect(doc.action).toBe('summarize-only')
+    expect(doc.category).toBe('project')
+    expect(doc.archivePath).toBeNull()
+  })
+
   it('skips workspace readme files', () => {
     const doc = classifyMarkdown('docs/specs/_README.md', '# Specs Workspace\n')
     expect(doc.action).toBe('skip')

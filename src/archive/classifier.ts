@@ -5,7 +5,12 @@ import { extractMarkdownTitle as parseMarkdownTitle } from './markdown.js'
 export { parseMarkdownTitle as extractMarkdownTitle }
 
 const TOOLING_ROOT_DOCS = new Set(['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '.windsurfrules'])
-const PROJECT_DOCS = new Set(['docs/architecture.md', 'docs/tech-stack.md', 'docs/changelog.md'])
+const PROJECT_DOCS = new Set([
+  'README.md',
+  'docs/architecture.md',
+  'docs/tech-stack.md',
+  'docs/changelog.md',
+])
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex')
