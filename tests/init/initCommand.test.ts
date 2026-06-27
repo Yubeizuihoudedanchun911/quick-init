@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { access, chmod, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
@@ -108,7 +108,7 @@ describe('runInitCommand', () => {
     expect(archiveFiles.some((file) => file.endsWith('iteration.md'))).toBe(false)
   })
 
-  it('fails when initial archive files already exist and preserves existing content', async () => {
+  it('fails when tracked initial archive files were deleted from working tree', async () => {
     const cwd = await makeTempRepo()
     const fixedDate = new Date('2026-06-27T00:00:00.000Z')
     const iterationDir = `${fixedDate.toISOString().slice(0, 10)}-初始化工程治理`
@@ -119,6 +119,11 @@ describe('runInitCommand', () => {
 
     await writeRepoFile(cwd, iterationPath, existingIteration)
     await writeRepoFile(cwd, manifestPath, existingManifest)
+    await execFileAsync('git', ['add', '--', iterationPath, manifestPath], { cwd })
+    await execFileAsync('git', ['commit', '-m', 'Seed archived initial iteration'], { cwd })
+
+    await rm(path.join(cwd, iterationPath), { force: true })
+    await rm(path.join(cwd, manifestPath), { force: true })
 
     vi.useFakeTimers()
     vi.setSystemTime(fixedDate)
@@ -130,10 +135,15 @@ describe('runInitCommand', () => {
       vi.useRealTimers()
     }
 
-    const finalIteration = await readFile(path.join(cwd, iterationPath), 'utf8')
-    const finalManifest = await readFile(path.join(cwd, manifestPath), 'utf8')
-    expect(finalIteration).toBe(existingIteration)
-    expect(finalManifest).toBe(existingManifest)
+    await expect(readFile(path.join(cwd, iterationPath), 'utf8')).rejects.toThrow()
+    await expect(readFile(path.join(cwd, manifestPath), 'utf8')).rejects.toThrow()
+
+    const { stdout: status } = await execFileAsync('git', ['status', '--short', '-z'], { cwd })
+    expect(status).toContain(` D ${iterationPath}\u0000`)
+    expect(status).toContain(` D ${manifestPath}\u0000`)
+    await expect(readFile(path.join(cwd, 'CLAUDE.md'), 'utf8')).rejects.toThrow()
+    await expect(readFile(path.join(cwd, '.quick-init/config.json'), 'utf8')).rejects.toThrow()
+    await expect(readFile(path.join(cwd, '.git/hooks/pre-commit'), 'utf8')).rejects.toThrow()
   })
 
   it('does not commit unrelated dirty files', async () => {

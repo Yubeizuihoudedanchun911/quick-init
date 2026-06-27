@@ -25,6 +25,20 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function isGitTrackedPath(cwd: string, relativePath: string): Promise<boolean> {
+  try {
+    await runGit(cwd, ['ls-files', '--error-unmatch', '--', relativePath])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function archivePathExists(cwd: string, relativePath: string): Promise<boolean> {
+  const fullPath = path.join(cwd, relativePath)
+  return (await fileExists(fullPath)) || (await isGitTrackedPath(cwd, relativePath))
+}
+
 async function unstageArchivePaths(cwd: string, archivePaths: string[]): Promise<void> {
   if (archivePaths.length === 0) {
     return
@@ -59,8 +73,7 @@ export async function runInitCommand(description: string, cwd: string): Promise<
   const archiveFiles = buildInitialArchiveFiles(generatedFiles, gitState.initialized, true, hookPath, now)
 
   for (const file of archiveFiles) {
-    const fullPath = path.join(cwd, file.path)
-    if (await fileExists(fullPath)) {
+    if (await archivePathExists(cwd, file.path)) {
       return { ok: false, message: `Initial archive file already exists: ${file.path}` }
     }
   }
