@@ -22,6 +22,12 @@ interface MovedArchiveFile {
   archivePath: string
 }
 
+interface SourceIndexEntry {
+  sourcePath: string
+  mode: string
+  oid: string
+}
+
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
 }
@@ -61,19 +67,12 @@ async function rollbackActiveIteration(
   }
 
   if (previousActive) {
-    try {
-      await writeActiveIteration(cwd, previousActive)
-    } catch {
-      // best-effort rollback; ignore active state restore failures
-    }
+    await clearActiveIteration(cwd)
+    await writeActiveIteration(cwd, previousActive)
     return
   }
 
-  try {
-    await clearActiveIteration(cwd)
-  } catch {
-    // best-effort rollback; ignore active state clear failures
-  }
+  await clearActiveIteration(cwd)
 }
 
 function errorMessage(error: unknown): string {
@@ -104,37 +103,78 @@ function readErrorMessage(filePath: string, error: unknown): string {
   return `Failed to read staged markdown "${filePath}": ${errorMessage(error)}`
 }
 
-async function safeUnstage(cwd: string, paths: string[]): Promise<void> {
+async function rollbackStagedPaths(cwd: string, paths: string[]): Promise<void> {
+  const failedPaths: string[] = []
   for (const changedPath of paths) {
     try {
       await runGit(cwd, ['reset', '--', changedPath])
     } catch {
-      // best-effort rollback; ignore staging unstage failures
+      failedPaths.push(changedPath)
     }
+  }
+
+  if (failedPaths.length > 0) {
+    throw new Error(`Failed to rollback staged archive paths: ${failedPaths.join(', ')}`)
   }
 }
 
 async function unstageSourcePathsFromCache(cwd: string, paths: string[]): Promise<void> {
-  if (paths.length === 0) {
-    return
+  for (const sourcePath of paths) {
+    try {
+      await runGit(cwd, ['rm', '--cached', '--ignore-unmatch', '--', sourcePath])
+    } catch (error) {
+      throw new Error(
+        `Failed to unstage staged source path from cache: ${sourcePath}: ${errorMessage(error)}`
+      )
+    }
+  }
+}
+
+function parseSourceIndexEntry(line: string, sourcePath: string): SourceIndexEntry | null {
+  const match = /^(\d+)\s+([0-9a-fA-F]+)\s+(\d+)\t([\s\S]+)$/.exec(line)
+  if (!match) {
+    return null
   }
 
-  try {
-    await runGit(cwd, ['rm', '--cached', '--ignore-unmatch', '--', ...paths])
-    return
-  } catch (error) {
-    const failedPaths: string[] = []
-    for (const sourcePath of paths) {
-      try {
-        await runGit(cwd, ['reset', '--', sourcePath])
-      } catch {
-        failedPaths.push(sourcePath)
-      }
+  const [, mode, oid, stage, entryPath] = match
+  if (stage !== '0' || entryPath !== sourcePath) {
+    return null
+  }
+
+  return { sourcePath: entryPath, mode, oid }
+}
+
+async function captureSourceIndexEntries(cwd: string, paths: string[]): Promise<SourceIndexEntry[]> {
+  const entries: SourceIndexEntry[] = []
+  for (const sourcePath of paths) {
+    const output = await runGit(cwd, ['ls-files', '--stage', '-z', '--', sourcePath])
+    const entry = output
+      .split('\0')
+      .filter(Boolean)
+      .map((line) => parseSourceIndexEntry(line, sourcePath))
+      .find((item): item is SourceIndexEntry => item !== null)
+
+    if (!entry) {
+      throw new Error(`Failed to capture staged source path cache entry: ${sourcePath}`)
     }
-    if (failedPaths.length > 0) {
-      throw new Error(`Failed to unstage staged source paths from cache: ${failedPaths.join(', ')}`)
+    entries.push(entry)
+  }
+
+  return entries
+}
+
+async function restoreSourceIndexEntries(cwd: string, entries: SourceIndexEntry[]): Promise<void> {
+  const failedPaths: string[] = []
+  for (const entry of entries) {
+    try {
+      await runGit(cwd, ['update-index', '--add', '--cacheinfo', entry.mode, entry.oid, entry.sourcePath])
+    } catch {
+      failedPaths.push(entry.sourcePath)
     }
-    throw error
+  }
+
+  if (failedPaths.length > 0) {
+    throw new Error(`Failed to restore staged source path cache entries: ${failedPaths.join(', ')}`)
   }
 }
 
@@ -197,6 +237,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
 
   const movedArchiveFiles: MovedArchiveFile[] = []
   const stagedRestoreTargets: string[] = []
+  let sourceIndexEntries: SourceIndexEntry[] = []
   const createdFiles: string[] = []
   const createdDirectories: string[] = []
   const createdDirectorySet = new Set<string>()
@@ -266,6 +307,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
     })
 
     if (config.archive.autoStage) {
+      sourceIndexEntries = await captureSourceIndexEntries(cwd, stagedRestoreTargets)
       await runGit(cwd, ['add', '--', target.iterationPath])
       await unstageSourcePathsFromCache(cwd, stagedRestoreTargets)
     }
@@ -301,8 +343,20 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
       }
     }
 
+    const rollbackFailures: string[] = []
     if (config.archive.autoStage) {
-      await safeUnstage(cwd, [target.iterationPath, ...stagedRestoreTargets])
+      try {
+        await rollbackStagedPaths(cwd, [target.iterationPath])
+      } catch (rollbackError) {
+        rollbackFailures.push(errorMessage(rollbackError))
+      }
+      if (sourceIndexEntries.length > 0) {
+        try {
+          await restoreSourceIndexEntries(cwd, sourceIndexEntries)
+        } catch (rollbackError) {
+          rollbackFailures.push(errorMessage(rollbackError))
+        }
+      }
     }
     const directoriesToCleanup = new Set(createdDirectories)
     directoriesToCleanup.add(iterationPath)
@@ -313,8 +367,16 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
         // best-effort cleanup for empty directories created during execution
       }
     }
-    await rollbackActiveIteration(cwd, activeIterationTouched, previousActive)
+    try {
+      await rollbackActiveIteration(cwd, activeIterationTouched, previousActive)
+    } catch (rollbackError) {
+      rollbackFailures.push(`Failed to rollback active iteration state: ${errorMessage(rollbackError)}`)
+    }
 
-    return { ok: false, message: errorMessage(error) }
+    const message =
+      rollbackFailures.length > 0
+        ? `${errorMessage(error)}; rollback failed: ${rollbackFailures.join('; ')}`
+        : errorMessage(error)
+    return { ok: false, message }
   }
 }

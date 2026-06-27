@@ -361,19 +361,11 @@ describe('runArchiveCommand', () => {
     await execFileAsync('git', ['add', sourcePath], { cwd })
 
     const originalRunGit = git.runGit
-    const resetAttempts = new Map<string, number>()
     const runGitSpy = vi.spyOn(git, 'runGit')
     runGitSpy.mockImplementation(async (repo, args) => {
       if (repo === cwd && args[0] === 'rm' && args.includes(sourcePath)) {
+        await originalRunGit(repo, args as string[])
         throw new Error('simulated git rm cache failure')
-      }
-
-      if (repo === cwd && args[0] === 'reset' && args.includes(sourcePath)) {
-        const count = (resetAttempts.get(sourcePath) ?? 0) + 1
-        resetAttempts.set(sourcePath, count)
-        if (count === 1) {
-          throw new Error('simulated git reset cache failure')
-        }
       }
 
       return originalRunGit(repo, args as string[])
@@ -383,7 +375,7 @@ describe('runArchiveCommand', () => {
       const result = await runArchiveCommand(cwd, { staged: true })
 
       expect(result.ok).toBe(false)
-      expect(result.message).toContain('Failed to unstage staged source paths from cache')
+      expect(result.message).toContain('Failed to unstage staged source path from cache')
 
       await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('支付流程设计')
       await expect(access(archivePath)).rejects.toThrow()
@@ -394,9 +386,49 @@ describe('runArchiveCommand', () => {
 
       const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-status'], { cwd })
       const stagedPaths = splitNameStatusLines(stdout)
-      expect(stagedPaths.every((entry) => !entry.includes(sourcePath))).toBe(true)
+      expect(stagedPaths).toContain(`A\t${sourcePath}`)
       expect(stagedPaths.every((entry) => !entry.includes('manifest.json'))).toBe(true)
       expect(stagedPaths.every((entry) => !entry.includes('iteration.md'))).toBe(true)
+    } finally {
+      runGitSpy.mockRestore()
+    }
+  })
+
+  it('restores tracked staged source index entry when cache removal fails after index mutation', async () => {
+    const cwd = await makeTempRepo()
+    const sourcePath = 'docs/specs/payment.md'
+
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n旧版本\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+    await execFileAsync('git', ['commit', '-m', 'seed', '--no-gpg-sign'], { cwd })
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n新版本\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+
+    const originalRunGit = git.runGit
+    const runGitSpy = vi.spyOn(git, 'runGit')
+    runGitSpy.mockImplementation(async (repo, args) => {
+      if (repo === cwd && args[0] === 'rm' && args.includes(sourcePath)) {
+        await originalRunGit(repo, args as string[])
+        throw new Error('simulated post-rm failure')
+      }
+
+      return originalRunGit(repo, args as string[])
+    })
+
+    try {
+      const result = await runArchiveCommand(cwd, { staged: true })
+
+      expect(result.ok).toBe(false)
+      expect(result.message).toContain('Failed to unstage staged source path from cache')
+      await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('新版本')
+
+      const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-status'], { cwd })
+      const stagedPaths = splitNameStatusLines(stdout)
+      expect(stagedPaths).toContain(`M\t${sourcePath}`)
+      expect(stagedPaths.every((entry) => !entry.includes('docs/iterations'))).toBe(true)
+
+      const { stdout: stagedContent } = await execFileAsync('git', ['show', `:${sourcePath}`], { cwd })
+      expect(stagedContent).toContain('新版本')
     } finally {
       runGitSpy.mockRestore()
     }
