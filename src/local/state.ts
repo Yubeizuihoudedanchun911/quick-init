@@ -13,10 +13,29 @@ function statePath(cwd: string): string {
 
 export async function readActiveIteration(cwd: string): Promise<ActiveIterationState | null> {
   try {
-    return JSON.parse(await readFile(statePath(cwd), 'utf8')) as ActiveIterationState
+    const state = JSON.parse(await readFile(statePath(cwd), 'utf8'))
+    if (
+      isActiveIterationState(state) &&
+      state.iteration.length > 0 &&
+      state.iterationPath.length > 0 &&
+      state.updatedAt.length > 0
+    ) {
+      return state
+    }
+    return null
   } catch {
     return null
   }
+}
+
+function isActiveIterationState(value: unknown): value is ActiveIterationState {
+  if (!value || typeof value !== 'object') return false
+  const state = value as Partial<ActiveIterationState>
+  return (
+    typeof state.iteration === 'string' &&
+    typeof state.iterationPath === 'string' &&
+    typeof state.updatedAt === 'string'
+  )
 }
 
 export async function writeActiveIteration(cwd: string, state: ActiveIterationState): Promise<void> {
