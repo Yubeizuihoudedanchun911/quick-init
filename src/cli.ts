@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { CommandResult } from './core/types.js'
 import { runInitCommand } from './init/initCommand.js'
+import { runArchiveCommand } from './archive/archiveCommand.js'
 
 function usage(): string {
   return [
@@ -26,7 +27,10 @@ export async function runCli(argv: string[], cwd: string = process.cwd()): Promi
     }
     return runInitCommand(description, cwd)
   }
-  if (!['archive', 'iteration'].includes(command)) {
+  if (command === 'archive') {
+    return runArchiveCommand(cwd, { staged: rest.includes('--staged') })
+  }
+  if (command !== 'iteration') {
     return { ok: false, message: `Unknown command: ${command}` }
   }
   return { ok: false, message: `Command not wired yet: ${command} in ${cwd}` }

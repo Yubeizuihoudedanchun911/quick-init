@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
+import { promisify } from 'node:util'
 
 import { buildManifest } from '../../src/archive/manifest.js'
 import { resolveIterationTarget } from '../../src/archive/activeIteration.js'
 import { renderIterationMarkdown } from '../../src/archive/iterationText.js'
 import { toIterationSlug } from '../../src/archive/slug.js'
+import { runArchiveCommand } from '../../src/archive/archiveCommand.js'
 import { writeActiveIteration } from '../../src/local/state.js'
+import { makeTempRepo, writeRepoFile } from '../helpers/tempRepo.js'
+
+const execFileAsync = promisify(execFile)
 
 import type { ArchiveDocument, ArchiveManifest } from '../../src/core/types.js'
 
@@ -27,6 +33,166 @@ function sampleArchiveDocs(contentPath = 'docs/specs/payment.md'): ArchiveDocume
     }
   ]
 }
+
+function splitStagedLines(stdout: string): string[] {
+  return stdout.split('\0').filter(Boolean)
+}
+
+describe('runArchiveCommand', () => {
+  it('returns failure when staged flag is not provided', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, 'docs/specs/payment.md', '# 支付流程设计\n\n')
+    await execFileAsync('git', ['add', 'docs/specs/payment.md'], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: false })
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('requires --staged')
+  })
+
+  it('returns ok when there are no staged markdown files', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, 'src/index.ts', 'export const value = 1\n')
+    await execFileAsync('git', ['add', 'src/index.ts'], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+    expect(result.message).toContain('No staged Markdown files')
+  })
+
+  it('moves archive-able staged markdown and writes manifest and iteration state', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, 'docs/specs/payment.md', '# 支付流程设计\n\n设计内容\n')
+    await execFileAsync('git', ['add', 'docs/specs/payment.md'], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+
+    const today = new Date().toISOString().slice(0, 10)
+    const expectedIteration = `${today}-${toIterationSlug('支付流程设计')}`
+    const iterationPath = `docs/iterations/${expectedIteration}`
+    const archivePath = `${iterationPath}/specs/payment.md`
+
+    await expect(readFile(path.join(cwd, archivePath), 'utf8')).resolves.toContain('设计内容')
+    await expect(access(path.join(cwd, iterationPath, 'manifest.json'))).resolves.toBeUndefined()
+
+    const manifestText = await readFile(path.join(cwd, iterationPath, 'manifest.json'), 'utf8')
+    const manifest = JSON.parse(manifestText)
+    expect(manifest.archiveRuns[0].documents[0].action).toBe('archive')
+    expect(manifest.archiveRuns[0].documents[0].archivePath).toBe(archivePath)
+    expect(manifest.summaryStatus).toBe('degraded')
+
+    const active = await readFile(path.join(cwd, '.quick-init', 'state', 'active-iteration.json'), 'utf8')
+    const activeState = JSON.parse(active)
+    expect(activeState.iteration).toBe(expectedIteration)
+    expect(activeState.iterationPath).toBe(iterationPath)
+
+    const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd })
+    const stagedPaths = splitStagedLines(stdout)
+    expect(stagedPaths).toContain(archivePath)
+    expect(stagedPaths).toContain(`${iterationPath}/manifest.json`)
+    expect(stagedPaths).toContain(`${iterationPath}/iteration.md`)
+
+    expect(result.changedFiles).toEqual([archivePath])
+  })
+
+  it('keeps summarize-only docs in place but records them in manifest', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, 'README.md', '# 预启动文档\n\n内容\n')
+    await execFileAsync('git', ['add', 'README.md'], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+
+    const today = new Date().toISOString().slice(0, 10)
+    const expectedIteration = `${today}-${toIterationSlug('预启动文档')}`
+    const iterationPath = `docs/iterations/${expectedIteration}`
+    const manifest = JSON.parse(await readFile(path.join(cwd, iterationPath, 'manifest.json'), 'utf8'))
+
+    expect(manifest.summaryStatus).toBe('degraded')
+    expect(manifest.archiveRuns[0].documents).toHaveLength(1)
+    expect(manifest.archiveRuns[0].documents[0]).toEqual(
+      expect.objectContaining({
+        sourcePath: 'README.md',
+        action: 'summarize-only',
+        archivePath: null
+      })
+    )
+
+    expect(result.changedFiles).toEqual(['README.md'])
+    expect(await access(path.join(cwd, 'README.md'))).toBeUndefined()
+    await expect(readFile(path.join(cwd, iterationPath, 'iteration.md'), 'utf8')).resolves.toContain(
+      '# ' + expectedIteration
+    )
+  })
+
+  it('returns failure when target resolution is ambiguous', async () => {
+    const cwd = await makeTempRepo()
+    const firstIteration = '2026-06-26-支付流程设计'
+    const secondIteration = '2026-06-27-支付流程设计'
+
+    const firstManifest = path.join(
+      cwd,
+      'docs',
+      'iterations',
+      firstIteration,
+      'manifest.json'
+    )
+    const secondManifest = path.join(
+      cwd,
+      'docs',
+      'iterations',
+      secondIteration,
+      'manifest.json'
+    )
+    await mkdir(path.dirname(firstManifest), { recursive: true })
+    await mkdir(path.dirname(secondManifest), { recursive: true })
+    await writeFile(
+      firstManifest,
+      JSON.stringify(
+        {
+          iteration: firstIteration,
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'markdown-title',
+            path: 'docs/specs/payment.md',
+            title: '支付流程设计'
+          },
+          archiveRuns: []
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+    await writeFile(
+      secondManifest,
+      JSON.stringify(
+        {
+          iteration: secondIteration,
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'markdown-title',
+            path: 'docs/specs/other-payment.md',
+            title: '支付流程设计'
+          },
+          archiveRuns: []
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    await writeRepoFile(cwd, 'docs/specs/payment.md', '# 支付流程设计\n\n内容\n')
+    await execFileAsync('git', ['add', 'docs/specs/payment.md'], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('Multiple active iterations match')
+  })
+})
 
 describe('manifest and iteration markdown', () => {
   it('builds an active manifest and renders iteration markdown', () => {
