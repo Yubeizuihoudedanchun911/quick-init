@@ -1,7 +1,7 @@
 import { access, mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { CommandResult, GeneratedFile } from '../core/types.js'
-import { ensureGitRepository } from '../git/git.js'
+import { ensureGitRepository, runGit } from '../git/git.js'
 import { installPreCommitHook } from '../git/hooks.js'
 import { scopedCommit } from '../git/scopedCommit.js'
 import { ensureLocalConfig } from '../local/config.js'
@@ -22,6 +22,23 @@ async function fileExists(filePath: string): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+async function unstageArchivePaths(cwd: string, archivePaths: string[]): Promise<void> {
+  if (archivePaths.length === 0) {
+    return
+  }
+
+  try {
+    await runGit(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+    await runGit(cwd, ['reset', '--', ...archivePaths])
+  } catch {
+    try {
+      await runGit(cwd, ['rm', '--cached', '--', ...archivePaths])
+    } catch {
+      // best-effort cleanup: ignore unstage failures and continue to remove working files
+    }
   }
 }
 
@@ -46,14 +63,18 @@ export async function runInitCommand(description: string, cwd: string): Promise<
   await ensureQuickInitIgnored(cwd)
   try {
     const hookPath = await installPreCommitHook(cwd)
-    const archiveFiles = buildInitialArchiveFiles(generatedFiles, gitState.initialized, true, hookPath)
-    const createdArchiveFiles: string[] = []
+    const now = new Date()
+    const archiveFiles = buildInitialArchiveFiles(generatedFiles, gitState.initialized, true, hookPath, now)
     for (const file of archiveFiles) {
       const fullPath = path.join(cwd, file.path)
-      if (!(await fileExists(fullPath))) {
-        createdArchiveFiles.push(file.path)
+      if (await fileExists(fullPath)) {
+        return { ok: false, message: `Initial archive file already exists: ${file.path}` }
       }
+    }
+    const createdArchiveFiles: string[] = []
+    for (const file of archiveFiles) {
       await writeGeneratedFile(cwd, file)
+      createdArchiveFiles.push(file.path)
     }
 
     const commitPaths = [
@@ -66,6 +87,7 @@ export async function runInitCommand(description: string, cwd: string): Promise<
     })
 
     if (!result.ok && createdArchiveFiles.length > 0) {
+      await unstageArchivePaths(cwd, createdArchiveFiles)
       await cleanupArchiveFiles(cwd, createdArchiveFiles)
     }
 

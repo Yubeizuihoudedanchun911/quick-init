@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { access, chmod, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -87,6 +87,16 @@ describe('runInitCommand', () => {
     expect(result.ok).toBe(false)
     expect(result.message).toContain('Command failed: git commit')
     await expect(execFileAsync('git', ['log', '--oneline', '-1'], { cwd })).rejects.toThrow()
+    const { stdout: staged } = await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd })
+    const stagedFiles = staged.split('\n').map((line) => line.trim()).filter(Boolean)
+    expect(stagedFiles.some((path) => /docs\/iterations\/\d{4}-\d{2}-\d{2}-初始化工程治理\/iteration\.md$/.test(path))).toBe(
+      false,
+    )
+    expect(
+      stagedFiles.some((path) =>
+        /docs\/iterations\/\d{4}-\d{2}-\d{2}-初始化工程治理\/manifest\.json$/.test(path),
+      ),
+    ).toBe(false)
 
     let archiveFiles: string[] = []
     try {
@@ -96,6 +106,34 @@ describe('runInitCommand', () => {
     }
     expect(archiveFiles.some((file) => file.endsWith('manifest.json'))).toBe(false)
     expect(archiveFiles.some((file) => file.endsWith('iteration.md'))).toBe(false)
+  })
+
+  it('fails when initial archive files already exist and preserves existing content', async () => {
+    const cwd = await makeTempRepo()
+    const fixedDate = new Date('2026-06-27T00:00:00.000Z')
+    const iterationDir = `${fixedDate.toISOString().slice(0, 10)}-初始化工程治理`
+    const iterationPath = `docs/iterations/${iterationDir}/iteration.md`
+    const manifestPath = `docs/iterations/${iterationDir}/manifest.json`
+    const existingIteration = '# 已有归档\n'
+    const existingManifest = '{"type":"existing"}\n'
+
+    await writeRepoFile(cwd, iterationPath, existingIteration)
+    await writeRepoFile(cwd, manifestPath, existingManifest)
+
+    vi.useFakeTimers()
+    vi.setSystemTime(fixedDate)
+    try {
+      const result = await runInitCommand('TypeScript CLI 工具', cwd)
+      expect(result.ok).toBe(false)
+      expect(result.message).toContain('Initial archive file already exists')
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const finalIteration = await readFile(path.join(cwd, iterationPath), 'utf8')
+    const finalManifest = await readFile(path.join(cwd, manifestPath), 'utf8')
+    expect(finalIteration).toBe(existingIteration)
+    expect(finalManifest).toBe(existingManifest)
   })
 
   it('does not commit unrelated dirty files', async () => {
