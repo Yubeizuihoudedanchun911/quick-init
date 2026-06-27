@@ -129,16 +129,46 @@ describe('runArchiveCommand', () => {
     expect(result.changedFiles).toEqual([archivePath])
   })
 
-  it('returns failure when staged markdown file is missing from working tree', async () => {
+  it('archives staged markdown content when the working tree file is missing', async () => {
     const cwd = await makeTempRepo()
     await writeRepoFile(cwd, 'docs/specs/payment.md', '# 支付流程设计\n\n设计内容\n')
     await execFileAsync('git', ['add', 'docs/specs/payment.md'], { cwd })
     await rm(path.join(cwd, 'docs/specs/payment.md'))
 
     const result = await runArchiveCommand(cwd, { staged: true })
-    expect(result.ok).toBe(false)
-    expect(result.message).toContain('Failed to read staged markdown "docs/specs/payment.md"')
-    expect(result.message).toMatch(/ENOENT|no such file/i)
+    expect(result.ok).toBe(true)
+
+    const archivePath = result.changedFiles?.[0]
+    expect(archivePath).toBeDefined()
+    await expect(readFile(path.join(cwd, archivePath!), 'utf8')).resolves.toContain('设计内容')
+    await expect(access(path.join(cwd, 'docs/specs/payment.md'))).rejects.toThrow()
+  })
+
+  it('archives staged markdown content without consuming unstaged working tree edits', async () => {
+    const cwd = await makeTempRepo()
+    const sourcePath = 'docs/specs/payment.md'
+
+    await writeRepoFile(cwd, sourcePath, '# 原始支付流程\n\n旧版本\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+    await execFileAsync('git', ['commit', '-m', 'seed', '--no-gpg-sign'], { cwd })
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n已暂存版本\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+    await writeRepoFile(cwd, sourcePath, '# 未暂存标题\n\n未暂存版本\n')
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+
+    const archivePath = result.changedFiles?.[0]
+    expect(archivePath).toBe(
+      `docs/iterations/${new Date().toISOString().slice(0, 10)}-${toIterationSlug('支付流程设计')}/specs/payment.md`
+    )
+    await expect(readFile(path.join(cwd, archivePath!), 'utf8')).resolves.toContain('已暂存版本')
+    await expect(readFile(path.join(cwd, archivePath!), 'utf8')).resolves.not.toContain('未暂存版本')
+    await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('未暂存版本')
+
+    const { stdout: stagedArchiveContent } = await execFileAsync('git', ['show', `:${archivePath}`], { cwd })
+    expect(stagedArchiveContent).toContain('已暂存版本')
+    expect(stagedArchiveContent).not.toContain('未暂存版本')
   })
 
   it('writes manifest first then cleans up manifest when iteration markdown write fails', async () => {
@@ -432,6 +462,132 @@ describe('runArchiveCommand', () => {
     } finally {
       runGitSpy.mockRestore()
     }
+  })
+
+  it('does not stage unrelated existing files under the active iteration directory', async () => {
+    const cwd = await makeTempRepo()
+    const iteration = '2026-06-27-payment'
+    const iterationPath = `docs/iterations/${iteration}`
+    const sourcePath = 'docs/specs/payment.md'
+    const unrelatedPath = `${iterationPath}/notes.txt`
+
+    await writeActiveIteration(cwd, {
+      iteration,
+      iterationPath,
+      updatedAt: '2026-06-27T00:00:00.000Z'
+    })
+    await writeRepoFile(cwd, unrelatedPath, 'draft notes\n')
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n设计内容\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+
+    const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-status'], { cwd })
+    const stagedPaths = splitNameStatusLines(stdout)
+    expect(stagedPaths.some((entry) => entry.includes(unrelatedPath))).toBe(false)
+    expect(stagedPaths.some((entry) => entry.endsWith('/manifest.json'))).toBe(true)
+    expect(stagedPaths.some((entry) => entry.endsWith('/iteration.md'))).toBe(true)
+  })
+
+  it('preserves unrelated staged files under the active iteration directory when rollback runs', async () => {
+    const cwd = await makeTempRepo()
+    const iteration = '2026-06-27-payment'
+    const iterationPath = `docs/iterations/${iteration}`
+    const sourcePath = 'docs/specs/payment.md'
+    const unrelatedPath = `${iterationPath}/notes.txt`
+
+    await writeActiveIteration(cwd, {
+      iteration,
+      iterationPath,
+      updatedAt: '2026-06-27T00:00:00.000Z'
+    })
+    await writeRepoFile(cwd, unrelatedPath, 'draft notes\n')
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n设计内容\n')
+    await execFileAsync('git', ['add', unrelatedPath, sourcePath], { cwd })
+
+    const originalRunGit = git.runGit
+    const runGitSpy = vi.spyOn(git, 'runGit')
+    runGitSpy.mockImplementation(async (repo, args) => {
+      if (repo === cwd && args[0] === 'rm' && args.includes(sourcePath)) {
+        await originalRunGit(repo, args as string[])
+        throw new Error('simulated source cache removal failure')
+      }
+
+      return originalRunGit(repo, args as string[])
+    })
+
+    try {
+      const result = await runArchiveCommand(cwd, { staged: true })
+      expect(result.ok).toBe(false)
+
+      const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-status'], { cwd })
+      const stagedPaths = splitNameStatusLines(stdout)
+      expect(stagedPaths).toContain(`A\t${unrelatedPath}`)
+      expect(stagedPaths).toContain(`A\t${sourcePath}`)
+      expect(stagedPaths.every((entry) => !entry.includes('/manifest.json'))).toBe(true)
+      expect(stagedPaths.every((entry) => !entry.includes('/iteration.md'))).toBe(true)
+    } finally {
+      runGitSpy.mockRestore()
+    }
+  })
+
+  it('appends a new archive run to an existing active iteration manifest', async () => {
+    const cwd = await makeTempRepo()
+    const iteration = '2026-06-27-payment'
+    const iterationPath = `docs/iterations/${iteration}`
+    const sourcePath = 'docs/specs/payment.md'
+    const manifestPath = path.join(cwd, iterationPath, 'manifest.json')
+    const previousManifest: ArchiveManifest = {
+      iteration,
+      status: 'active',
+      summaryStatus: 'generated',
+      slugSource: {
+        type: 'markdown-title',
+        path: 'docs/specs/previous.md',
+        title: 'Payment'
+      },
+      archiveRuns: [
+        {
+          runId: 'previous-run',
+          commit: 'abc123',
+          documents: [
+            {
+              sourcePath: 'docs/specs/previous.md',
+              archivePath: `${iterationPath}/specs/previous.md`,
+              category: 'specs',
+              action: 'archive',
+              reason: 'previous',
+              sha256: 'a'.repeat(64)
+            }
+          ]
+        }
+      ]
+    }
+
+    await writeActiveIteration(cwd, {
+      iteration,
+      iterationPath,
+      updatedAt: '2026-06-27T00:00:00.000Z'
+    })
+    await mkdir(path.dirname(manifestPath), { recursive: true })
+    await writeFile(manifestPath, `${JSON.stringify(previousManifest, null, 2)}\n`, 'utf8')
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n设计内容\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ArchiveManifest
+    expect(manifest.archiveRuns).toHaveLength(2)
+    expect(manifest.archiveRuns[0]).toEqual(previousManifest.archiveRuns[0])
+    expect(manifest.archiveRuns[1].documents[0]).toEqual(
+      expect.objectContaining({
+        sourcePath,
+        archivePath: `${iterationPath}/specs/payment.md`,
+        action: 'archive'
+      })
+    )
   })
 
   it('returns failure when target resolution is ambiguous', async () => {

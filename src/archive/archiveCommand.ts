@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { CommandResult } from '../core/types.js'
@@ -11,22 +11,26 @@ import { classifyMarkdown } from './classifier.js'
 import { resolveIterationTarget } from './activeIteration.js'
 import { buildManifest } from './manifest.js'
 import { renderIterationMarkdown } from './iterationText.js'
-import type { ArchiveDocument, SummaryStatus } from '../core/types.js'
+import type { ArchiveDocument, ArchiveManifest, SummaryStatus } from '../core/types.js'
 
 interface ArchiveCommandOptions {
   staged: boolean
 }
 
-interface MovedArchiveFile {
+interface ArchivedFileWrite {
   sourcePath: string
   archivePath: string
+  removedSourceContent: string | null
+  previousArchiveContent: string | null
 }
 
-interface SourceIndexEntry {
-  sourcePath: string
+interface IndexEntry {
+  gitPath: string
   mode: string
   oid: string
 }
+
+type NullableIndexEntry = IndexEntry | { gitPath: string; mode: null; oid: null }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
@@ -99,29 +103,18 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
   }
 }
 
-function readErrorMessage(filePath: string, error: unknown): string {
-  return `Failed to read staged markdown "${filePath}": ${errorMessage(error)}`
-}
-
-async function rollbackStagedPaths(cwd: string, paths: string[]): Promise<void> {
-  const failedPaths: string[] = []
-  for (const changedPath of paths) {
-    try {
-      await runGit(cwd, ['reset', '--', changedPath])
-    } catch {
-      failedPaths.push(changedPath)
-    }
-  }
-
-  if (failedPaths.length > 0) {
-    throw new Error(`Failed to rollback staged archive paths: ${failedPaths.join(', ')}`)
+async function readStagedText(cwd: string, gitPath: string): Promise<string> {
+  try {
+    return await runGit(cwd, ['show', `:${gitPath}`])
+  } catch (error) {
+    throw new Error(`Failed to read staged markdown "${gitPath}": ${errorMessage(error)}`)
   }
 }
 
 async function unstageSourcePathsFromCache(cwd: string, paths: string[]): Promise<void> {
   for (const sourcePath of paths) {
     try {
-      await runGit(cwd, ['rm', '--cached', '--ignore-unmatch', '--', sourcePath])
+      await runGit(cwd, ['rm', '--cached', '--force', '--ignore-unmatch', '--', sourcePath])
     } catch (error) {
       throw new Error(
         `Failed to unstage staged source path from cache: ${sourcePath}: ${errorMessage(error)}`
@@ -130,32 +123,40 @@ async function unstageSourcePathsFromCache(cwd: string, paths: string[]): Promis
   }
 }
 
-function parseSourceIndexEntry(line: string, sourcePath: string): SourceIndexEntry | null {
+function parseIndexEntry(line: string, gitPath: string): IndexEntry | null {
   const match = /^(\d+)\s+([0-9a-fA-F]+)\s+(\d+)\t([\s\S]+)$/.exec(line)
   if (!match) {
     return null
   }
 
   const [, mode, oid, stage, entryPath] = match
-  if (stage !== '0' || entryPath !== sourcePath) {
+  if (stage !== '0' || entryPath !== gitPath) {
     return null
   }
 
-  return { sourcePath: entryPath, mode, oid }
+  return { gitPath: entryPath, mode, oid }
 }
 
-async function captureSourceIndexEntries(cwd: string, paths: string[]): Promise<SourceIndexEntry[]> {
-  const entries: SourceIndexEntry[] = []
-  for (const sourcePath of paths) {
-    const output = await runGit(cwd, ['ls-files', '--stage', '-z', '--', sourcePath])
+async function captureIndexEntries(
+  cwd: string,
+  paths: string[],
+  options: { requireEntry: boolean }
+): Promise<NullableIndexEntry[]> {
+  const entries: NullableIndexEntry[] = []
+  for (const gitPath of paths) {
+    const output = await runGit(cwd, ['ls-files', '--stage', '-z', '--', gitPath])
     const entry = output
       .split('\0')
       .filter(Boolean)
-      .map((line) => parseSourceIndexEntry(line, sourcePath))
-      .find((item): item is SourceIndexEntry => item !== null)
+      .map((line) => parseIndexEntry(line, gitPath))
+      .find((item): item is IndexEntry => item !== null)
 
     if (!entry) {
-      throw new Error(`Failed to capture staged source path cache entry: ${sourcePath}`)
+      if (options.requireEntry) {
+        throw new Error(`Failed to capture staged cache entry: ${gitPath}`)
+      }
+      entries.push({ gitPath, mode: null, oid: null })
+      continue
     }
     entries.push(entry)
   }
@@ -163,18 +164,22 @@ async function captureSourceIndexEntries(cwd: string, paths: string[]): Promise<
   return entries
 }
 
-async function restoreSourceIndexEntries(cwd: string, entries: SourceIndexEntry[]): Promise<void> {
+async function restoreIndexEntries(cwd: string, entries: NullableIndexEntry[]): Promise<void> {
   const failedPaths: string[] = []
   for (const entry of entries) {
     try {
-      await runGit(cwd, ['update-index', '--add', '--cacheinfo', entry.mode, entry.oid, entry.sourcePath])
+      if (entry.mode === null || entry.oid === null) {
+        await runGit(cwd, ['rm', '--cached', '--force', '--ignore-unmatch', '--', entry.gitPath])
+        continue
+      }
+      await runGit(cwd, ['update-index', '--add', '--cacheinfo', entry.mode, entry.oid, entry.gitPath])
     } catch {
-      failedPaths.push(entry.sourcePath)
+      failedPaths.push(entry.gitPath)
     }
   }
 
   if (failedPaths.length > 0) {
-    throw new Error(`Failed to restore staged source path cache entries: ${failedPaths.join(', ')}`)
+    throw new Error(`Failed to restore staged cache entries: ${failedPaths.join(', ')}`)
   }
 }
 
@@ -187,6 +192,48 @@ async function rollbackWriteFile(filePath: string, previousContent: string | nul
     await rm(filePath, { force: true, recursive: true })
   } catch {
     // best-effort rollback
+  }
+}
+
+function isArchiveManifest(value: unknown): value is ArchiveManifest {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const manifest = value as Partial<ArchiveManifest>
+  return (
+    typeof manifest.iteration === 'string' &&
+    (manifest.status === 'active' || manifest.status === 'closed') &&
+    typeof manifest.summaryStatus === 'string' &&
+    Array.isArray(manifest.archiveRuns)
+  )
+}
+
+function readPreviousManifest(text: string | null, iteration: string): ArchiveManifest | null {
+  if (!text) {
+    return null
+  }
+
+  try {
+    const manifest = JSON.parse(text)
+    if (isArchiveManifest(manifest) && manifest.iteration === iteration) {
+      return manifest
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function mergeArchiveManifest(previousManifest: ArchiveManifest | null, nextManifest: ArchiveManifest): ArchiveManifest {
+  if (!previousManifest) {
+    return nextManifest
+  }
+
+  return {
+    ...previousManifest,
+    status: 'active',
+    summaryStatus: nextManifest.summaryStatus,
+    archiveRuns: [...previousManifest.archiveRuns, ...nextManifest.archiveRuns]
   }
 }
 
@@ -210,9 +257,9 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
   for (const sourcePath of stagedMarkdownFiles) {
     let content: string
     try {
-      content = await readFile(path.join(cwd, sourcePath), 'utf8')
+      content = await readStagedText(cwd, sourcePath)
     } catch (error) {
-      return { ok: false, message: readErrorMessage(sourcePath, error) }
+      return { ok: false, message: errorMessage(error) }
     }
     markdownByPath.set(sourcePath, content)
     documents.push(classifyMarkdown(sourcePath, content))
@@ -229,15 +276,19 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
   }
 
   const iterationPath = path.join(cwd, target.iterationPath)
+  const manifestRelativePath = toPosix(path.join(target.iterationPath, 'manifest.json'))
+  const iterationMarkdownRelativePath = toPosix(path.join(target.iterationPath, 'iteration.md'))
   const manifestPath = path.join(iterationPath, 'manifest.json')
   const iterationMarkdownPath = path.join(iterationPath, 'iteration.md')
   const previousManifest = await readTextOrNull(manifestPath)
   const previousIterationMarkdown = await readTextOrNull(iterationMarkdownPath)
   const previousActive = await readActiveIteration(cwd)
 
-  const movedArchiveFiles: MovedArchiveFile[] = []
+  const archivedFileWrites: ArchivedFileWrite[] = []
   const stagedRestoreTargets: string[] = []
-  let sourceIndexEntries: SourceIndexEntry[] = []
+  const targetStagePaths: string[] = []
+  let sourceIndexEntries: NullableIndexEntry[] = []
+  let targetIndexEntries: NullableIndexEntry[] = []
   const createdFiles: string[] = []
   const createdDirectories: string[] = []
   const createdDirectorySet = new Set<string>()
@@ -251,25 +302,40 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
           path.join(target.iterationPath, doc.category, path.basename(doc.sourcePath))
         )
         const absoluteArchivePath = path.join(cwd, archiveRelativePath)
+        const absoluteSourcePath = path.join(cwd, doc.sourcePath)
         const categoryDirectory = path.join(cwd, target.iterationPath, doc.category)
+        const stagedContent = markdownByPath.get(doc.sourcePath) ?? ''
+        const workingTreeContent = await readTextOrNull(absoluteSourcePath)
+        const previousArchiveContent = await readTextOrNull(absoluteArchivePath)
         await trackCreatedDirectory(categoryDirectory, createdDirectories, createdDirectorySet)
         await mkdir(categoryDirectory, { recursive: true })
-        await rename(path.join(cwd, doc.sourcePath), absoluteArchivePath)
-        movedArchiveFiles.push({ sourcePath: doc.sourcePath, archivePath: archiveRelativePath })
+        const archivedWrite: ArchivedFileWrite = {
+          sourcePath: doc.sourcePath,
+          archivePath: archiveRelativePath,
+          removedSourceContent: null,
+          previousArchiveContent
+        }
+        await writeFile(absoluteArchivePath, stagedContent, 'utf8')
+        archivedFileWrites.push(archivedWrite)
+        if (workingTreeContent !== null && workingTreeContent === stagedContent) {
+          await rm(absoluteSourcePath, { force: true })
+          archivedWrite.removedSourceContent = workingTreeContent
+        }
         stagedRestoreTargets.push(doc.sourcePath)
+        targetStagePaths.push(archiveRelativePath)
         processedDocuments.push({ ...doc, archivePath: archiveRelativePath })
       } else {
         processedDocuments.push(doc)
       }
     }
 
-    const manifest = buildManifest({
+    const manifest = mergeArchiveManifest(readPreviousManifest(previousManifest, target.iteration), buildManifest({
       iteration: target.iteration,
       summaryStatus: 'degraded',
       slugSource: target.slugSource,
       documents: processedDocuments,
       runId: new Date().toISOString().replace(/[:.]/g, '-')
-    })
+    }))
 
     let summary: { status: SummaryStatus; markdown?: string; reason?: string } = {
       status: 'degraded',
@@ -298,6 +364,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
     createdFiles.push(manifestPath)
     createdFiles.push(iterationMarkdownPath)
     await writeFile(iterationMarkdownPath, iterationMarkdown, 'utf8')
+    targetStagePaths.push(manifestRelativePath, iterationMarkdownRelativePath)
 
     activeIterationTouched = true
     await writeActiveIteration(cwd, {
@@ -307,8 +374,9 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
     })
 
     if (config.archive.autoStage) {
-      sourceIndexEntries = await captureSourceIndexEntries(cwd, stagedRestoreTargets)
-      await runGit(cwd, ['add', '--', target.iterationPath])
+      sourceIndexEntries = await captureIndexEntries(cwd, stagedRestoreTargets, { requireEntry: true })
+      targetIndexEntries = await captureIndexEntries(cwd, [...new Set(targetStagePaths)], { requireEntry: false })
+      await runGit(cwd, ['add', '--', ...new Set(targetStagePaths)])
       await unstageSourcePathsFromCache(cwd, stagedRestoreTargets)
     }
 
@@ -318,19 +386,18 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
       changedFiles: processedDocuments.map((doc) => doc.archivePath ?? doc.sourcePath)
     }
   } catch (error) {
-    for (const moved of movedArchiveFiles) {
-      const sourceAbsolute = path.join(cwd, moved.sourcePath)
-      const archiveAbsolute = path.join(cwd, moved.archivePath)
-      try {
-        await rename(archiveAbsolute, sourceAbsolute)
-      } catch {
-        // best-effort rollback; ignore rename failures while restoring source
+    for (const archivedWrite of archivedFileWrites) {
+      if (archivedWrite.removedSourceContent !== null) {
+        const sourceAbsolute = path.join(cwd, archivedWrite.sourcePath)
+        try {
+          await mkdir(path.dirname(sourceAbsolute), { recursive: true })
+          await writeFile(sourceAbsolute, archivedWrite.removedSourceContent, 'utf8')
+        } catch {
+          // best-effort rollback; ignore source restore failures
+        }
       }
-      try {
-        await rm(archiveAbsolute, { force: true })
-      } catch {
-        // best-effort cleanup for residual archive files
-      }
+
+      await rollbackWriteFile(path.join(cwd, archivedWrite.archivePath), archivedWrite.previousArchiveContent)
     }
 
     for (const file of createdFiles) {
@@ -345,14 +412,16 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
 
     const rollbackFailures: string[] = []
     if (config.archive.autoStage) {
-      try {
-        await rollbackStagedPaths(cwd, [target.iterationPath])
-      } catch (rollbackError) {
-        rollbackFailures.push(errorMessage(rollbackError))
+      if (targetIndexEntries.length > 0) {
+        try {
+          await restoreIndexEntries(cwd, targetIndexEntries)
+        } catch (rollbackError) {
+          rollbackFailures.push(errorMessage(rollbackError))
+        }
       }
       if (sourceIndexEntries.length > 0) {
         try {
-          await restoreSourceIndexEntries(cwd, sourceIndexEntries)
+          await restoreIndexEntries(cwd, sourceIndexEntries)
         } catch (rollbackError) {
           rollbackFailures.push(errorMessage(rollbackError))
         }
