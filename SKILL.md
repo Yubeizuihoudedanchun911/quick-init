@@ -39,4 +39,4 @@ quick-init iteration start "<name>"
 quick-init iteration close
 ```
 
-`iteration start` creates a local active iteration state in `.quick-init/state/active-iteration.json` with a dated slug and `docs/iterations/<iteration>` path. `iteration status` reports the active iteration when present, or `No active iteration` when none is open. `iteration close` clears the local active iteration state.
+`iteration start` creates a local active iteration state in `.quick-init/state/active-iteration.json` with a dated slug and `docs/iterations/<iteration>` path. `iteration status` reports the active iteration when present, or `No active iteration` when none is open. `iteration close` marks the active iteration manifest as `closed` when it exists, then clears the local active iteration state.

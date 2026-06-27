@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { runCli } from '../../src/cli.js'
@@ -54,6 +54,43 @@ describe('runIterationCommand', () => {
       ok: false,
       message: 'iteration start requires a name'
     })
+  })
+
+  it('marks an active iteration manifest closed when closing local state', async () => {
+    const cwd = await tempDir()
+    const started = await runIterationCommand(['start', '支付流程设计'], cwd)
+    expect(started.ok).toBe(true)
+    const state = await readActiveIteration(cwd)
+    expect(state).not.toBeNull()
+    const manifestPath = path.join(cwd, state!.iterationPath, 'manifest.json')
+
+    await mkdir(path.dirname(manifestPath), { recursive: true })
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          iteration: state!.iteration,
+          status: 'active',
+          summaryStatus: 'degraded',
+          slugSource: {
+            type: 'markdown-title',
+            path: 'docs/specs/payment.md',
+            title: '支付流程设计'
+          },
+          archiveRuns: []
+        },
+        null,
+        2
+      )}\n`,
+      'utf8'
+    )
+
+    const closed = await runIterationCommand(['close'], cwd)
+    expect(closed.ok).toBe(true)
+    expect(closed.changedFiles).toEqual([`${state!.iterationPath}/manifest.json`])
+    expect(await readActiveIteration(cwd)).toBeNull()
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    expect(manifest.status).toBe('closed')
   })
 
   it('returns usage for unknown iteration commands', async () => {
