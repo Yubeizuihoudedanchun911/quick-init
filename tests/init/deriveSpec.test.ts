@@ -26,11 +26,16 @@ describe('deriveInitializationSpec', () => {
     })
   })
 
+  it('derives Next framework from concise "Next app" intent', () => {
+    const spec = deriveInitializationSpec('Next app', '/tmp/next-app')
+    expect(spec.project.techStack.framework).toBe('nextjs')
+  })
+
   it('falls back to generic TypeScript project when details are sparse', () => {
     const spec = deriveInitializationSpec('做一个命令行效率工具', '/tmp/quick-init')
     expect(spec.project.name).toBe('quick-init')
     expect(spec.project.domain).toBe('cli')
     expect(spec.project.techStack.language).toBe('typescript')
-    expect(spec.project.features).toContain('命令行效率工具')
+    expect(spec.project.features).toContain('做一个命令行效率工具')
   })
 })

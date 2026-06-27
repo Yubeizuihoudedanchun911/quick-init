@@ -5,21 +5,17 @@ function includesAny(input: string, words: string[]): boolean {
   return words.some((word) => input.includes(word))
 }
 
-function stripGenericPrefix(input: string): string {
-  return input.replace(/^做一个\s*/, '').trim()
-}
-
 function projectNameFromCwd(cwd: string): string {
   return path.basename(cwd).trim() || 'quick-init-project'
 }
 
 export function deriveInitializationSpec(description: string, cwd: string): InitializationSpec {
   const normalized = description.trim()
-  const feature = stripGenericPrefix(normalized)
+  const feature = normalized
   const lower = normalized.toLowerCase()
 
   const framework =
-    includesAny(lower, ['next.js', 'nextjs']) ? 'nextjs'
+    includesAny(lower, ['next.js', 'nextjs', 'next ']) ? 'nextjs'
     : includesAny(lower, ['express']) ? 'express'
     : includesAny(lower, ['fastapi']) ? 'fastapi'
     : undefined
