@@ -7,5 +7,9 @@ export function toIterationSlug(title: string): string {
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
 
-  return normalized.length > 0 ? normalized : 'iteration'
+  if (!normalized) return 'iteration'
+
+  const truncated = normalized.slice(0, 60).replace(/-+$/g, '')
+
+  return truncated.length > 0 ? truncated : 'iteration'
 }
