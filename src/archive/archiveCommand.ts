@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { CommandResult } from '../core/types.js'
@@ -20,6 +20,35 @@ interface ArchiveCommandOptions {
 interface MovedArchiveFile {
   sourcePath: string
   archivePath: string
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
+}
+
+async function trackCreatedDirectory(
+  absPath: string,
+  createdDirectories: string[],
+  createdDirectorySet: Set<string>
+): Promise<void> {
+  if (createdDirectorySet.has(absPath)) {
+    return
+  }
+
+  try {
+    const stats = await stat(absPath)
+    if (!stats.isDirectory()) {
+      throw new Error(`Expected existing path to be a directory: ${absPath}`)
+    }
+    return
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      createdDirectorySet.add(absPath)
+      createdDirectories.push(absPath)
+      return
+    }
+    throw error
+  }
 }
 
 async function rollbackActiveIteration(
@@ -93,14 +122,19 @@ async function unstageSourcePathsFromCache(cwd: string, paths: string[]): Promis
   try {
     await runGit(cwd, ['rm', '--cached', '--ignore-unmatch', '--', ...paths])
     return
-  } catch {
+  } catch (error) {
+    const failedPaths: string[] = []
     for (const sourcePath of paths) {
       try {
         await runGit(cwd, ['reset', '--', sourcePath])
       } catch {
-        // best-effort rollback; ignore failures removing staged source paths
+        failedPaths.push(sourcePath)
       }
     }
+    if (failedPaths.length > 0) {
+      throw new Error(`Failed to unstage staged source paths from cache: ${failedPaths.join(', ')}`)
+    }
+    throw error
   }
 }
 
@@ -164,6 +198,8 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
   const movedArchiveFiles: MovedArchiveFile[] = []
   const stagedRestoreTargets: string[] = []
   const createdFiles: string[] = []
+  const createdDirectories: string[] = []
+  const createdDirectorySet = new Set<string>()
   let activeIterationTouched = false
 
   try {
@@ -174,7 +210,9 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
           path.join(target.iterationPath, doc.category, path.basename(doc.sourcePath))
         )
         const absoluteArchivePath = path.join(cwd, archiveRelativePath)
-        await mkdir(path.join(cwd, target.iterationPath, doc.category), { recursive: true })
+        const categoryDirectory = path.join(cwd, target.iterationPath, doc.category)
+        await trackCreatedDirectory(categoryDirectory, createdDirectories, createdDirectorySet)
+        await mkdir(categoryDirectory, { recursive: true })
         await rename(path.join(cwd, doc.sourcePath), absoluteArchivePath)
         movedArchiveFiles.push({ sourcePath: doc.sourcePath, archivePath: archiveRelativePath })
         stagedRestoreTargets.push(doc.sourcePath)
@@ -213,6 +251,7 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
       summary.status === 'degraded' && summary.reason ? { fallbackSummaryReason: summary.reason } : undefined
     const iterationMarkdown = summary.markdown ?? renderIterationMarkdown(manifest, renderFallbackReason)
 
+    await trackCreatedDirectory(iterationPath, createdDirectories, createdDirectorySet)
     await mkdir(iterationPath, { recursive: true })
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     createdFiles.push(manifestPath)
@@ -264,6 +303,15 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
 
     if (config.archive.autoStage) {
       await safeUnstage(cwd, [target.iterationPath, ...stagedRestoreTargets])
+    }
+    const directoriesToCleanup = new Set(createdDirectories)
+    directoriesToCleanup.add(iterationPath)
+    for (const directory of [...directoriesToCleanup].sort((a, b) => b.length - a.length)) {
+      try {
+        await rmdir(directory)
+      } catch {
+        // best-effort cleanup for empty directories created during execution
+      }
     }
     await rollbackActiveIteration(cwd, activeIterationTouched, previousActive)
 

@@ -10,6 +10,7 @@ import { resolveIterationTarget } from '../../src/archive/activeIteration.js'
 import { renderIterationMarkdown } from '../../src/archive/iterationText.js'
 import { toIterationSlug } from '../../src/archive/slug.js'
 import { runArchiveCommand } from '../../src/archive/archiveCommand.js'
+import * as git from '../../src/git/git.js'
 import { writeActiveIteration } from '../../src/local/state.js'
 import { makeTempRepo, writeRepoFile } from '../helpers/tempRepo.js'
 
@@ -158,6 +159,8 @@ describe('runArchiveCommand', () => {
     await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('支付流程设计')
     await expect(access(manifestPath)).rejects.toThrow()
     await expect(access(iterationMarkdownPath)).rejects.toThrow()
+    await expect(access(path.join(cwd, iterationPath, 'specs'))).rejects.toThrow()
+    await expect(access(path.join(cwd, iterationPath))).rejects.toThrow()
   })
 
   it('restores previous active iteration when active state write fails', async () => {
@@ -342,6 +345,61 @@ describe('runArchiveCommand', () => {
     const stagedPaths = splitNameStatusLines(stdout)
     expect(stagedPaths).toContain(`A\t${sourcePath}`)
     expect(stagedPaths).not.toContain(`D\t${sourcePath}`)
+  })
+
+  it('fails when removing source files from cache fails and rolls back changed files', async () => {
+    const cwd = await makeTempRepo()
+    const sourcePath = 'docs/specs/payment.md'
+    const expectedIteration = `${new Date().toISOString().slice(0, 10)}-${toIterationSlug('支付流程设计')}`
+    const iterationPath = `docs/iterations/${expectedIteration}`
+    const manifestPath = path.join(cwd, iterationPath, 'manifest.json')
+    const iterationMarkdownPath = path.join(cwd, iterationPath, 'iteration.md')
+    const archivePath = path.join(cwd, iterationPath, 'specs', 'payment.md')
+    const iterationDirectory = path.join(cwd, iterationPath)
+
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+
+    const originalRunGit = git.runGit
+    const resetAttempts = new Map<string, number>()
+    const runGitSpy = vi.spyOn(git, 'runGit')
+    runGitSpy.mockImplementation(async (repo, args) => {
+      if (repo === cwd && args[0] === 'rm' && args.includes(sourcePath)) {
+        throw new Error('simulated git rm cache failure')
+      }
+
+      if (repo === cwd && args[0] === 'reset' && args.includes(sourcePath)) {
+        const count = (resetAttempts.get(sourcePath) ?? 0) + 1
+        resetAttempts.set(sourcePath, count)
+        if (count === 1) {
+          throw new Error('simulated git reset cache failure')
+        }
+      }
+
+      return originalRunGit(repo, args as string[])
+    })
+
+    try {
+      const result = await runArchiveCommand(cwd, { staged: true })
+
+      expect(result.ok).toBe(false)
+      expect(result.message).toContain('Failed to unstage staged source paths from cache')
+
+      await expect(readFile(path.join(cwd, sourcePath), 'utf8')).resolves.toContain('支付流程设计')
+      await expect(access(archivePath)).rejects.toThrow()
+      await expect(access(manifestPath)).rejects.toThrow()
+      await expect(access(iterationMarkdownPath)).rejects.toThrow()
+      await expect(access(path.join(iterationDirectory, 'specs'))).rejects.toThrow()
+      await expect(access(iterationDirectory)).rejects.toThrow()
+
+      const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-status'], { cwd })
+      const stagedPaths = splitNameStatusLines(stdout)
+      expect(stagedPaths.every((entry) => !entry.includes(sourcePath))).toBe(true)
+      expect(stagedPaths.every((entry) => !entry.includes('manifest.json'))).toBe(true)
+      expect(stagedPaths.every((entry) => !entry.includes('iteration.md'))).toBe(true)
+    } finally {
+      runGitSpy.mockRestore()
+    }
   })
 
   it('returns failure when target resolution is ambiguous', async () => {
