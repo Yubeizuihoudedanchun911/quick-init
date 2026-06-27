@@ -8,7 +8,7 @@ import { resolveIterationTarget } from '../../src/archive/activeIteration.js'
 import { renderIterationMarkdown } from '../../src/archive/iterationText.js'
 import { toIterationSlug } from '../../src/archive/slug.js'
 
-import type { ArchiveDocument } from '../../src/core/types.js'
+import type { ArchiveDocument, ArchiveManifest } from '../../src/core/types.js'
 
 async function tempDir(): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), 'quick-init-task8-'))
@@ -29,20 +29,24 @@ function sampleArchiveDocs(contentPath = 'docs/specs/payment.md'): ArchiveDocume
 
 describe('manifest and iteration markdown', () => {
   it('builds an active manifest and renders iteration markdown', () => {
+    const slugSource: ArchiveManifest['slugSource'] = {
+      type: 'markdown-title',
+      path: 'docs/specs/payment.md',
+      title: '支付流程设计'
+    }
     const manifest = buildManifest({
       iteration: '2026-06-26-支付流程设计',
       summaryStatus: 'degraded',
-      slugSource: {
-        type: 'markdown-title',
-        path: 'docs/specs/payment.md',
-        title: '支付流程设计'
-      },
+      slugSource,
       documents: sampleArchiveDocs(),
       runId: '2026-06-26T10-00-00'
     })
 
     expect(manifest.status).toBe('active')
+    expect(manifest.summaryStatus).toBe('degraded')
+    expect(manifest.slugSource).toEqual(slugSource)
     expect(manifest.archiveRuns[0].commit).toBe('pending')
+    expect(manifest.archiveRuns[0].runId).toBe('2026-06-26T10-00-00')
     expect(manifest.archiveRuns[0].documents[0].action).toBe('archive')
 
     const markdown = renderIterationMarkdown(manifest)
@@ -53,9 +57,40 @@ describe('manifest and iteration markdown', () => {
     expect(markdown).toContain('not summarized')
     expect(markdown).toContain('## Risks')
   })
+
+  it('renders - none when no archived documents exist', () => {
+    const manifest = buildManifest({
+      iteration: '2026-06-27-空迭代',
+      summaryStatus: 'generated',
+      slugSource: {
+        type: 'fallback',
+        title: '空迭代'
+      },
+      documents: [],
+      runId: '2026-06-27T10-00-00'
+    })
+    const markdown = renderIterationMarkdown(manifest)
+    expect(markdown).toContain('## Archived Documents')
+    expect(markdown).toContain('- none')
+  })
 })
 
 describe('resolveIterationTarget', () => {
+  it('works when markdownContentByPath is not provided', async () => {
+    const cwd = await tempDir()
+    const docs = sampleArchiveDocs()
+    const target = await resolveIterationTarget(cwd, docs)
+
+    const expectedSlug = toIterationSlug('payment')
+    expect(target.iteration).toBe(`${new Date().toISOString().slice(0, 10)}-${expectedSlug}`)
+    expect(target.iterationPath).toBe(`docs/iterations/${target.iteration}`)
+    expect(target.slugSource).toEqual({
+      type: 'filename',
+      path: 'docs/specs/payment.md',
+      title: 'payment'
+    })
+  })
+
   it('uses local active iteration file when valid', async () => {
     const cwd = await tempDir()
     const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
@@ -129,6 +164,51 @@ describe('resolveIterationTarget', () => {
       type: 'markdown-title',
       path: 'docs/specs/old-spec.md',
       title: '支付流程设计'
+    })
+  })
+
+  it('ignores suffix-matched active manifests with invalid slugSource and creates a new iteration', async () => {
+    const cwd = await tempDir()
+    const docs: ArchiveDocument[] = sampleArchiveDocs('docs/specs/支付幂等性.md')
+    const iteration = `${new Date().toISOString().slice(0, 10)}-支付幂等性`
+    const manifestPath = path.join(cwd, 'docs', 'iterations', iteration, 'manifest.json')
+    await mkdir(path.dirname(manifestPath), { recursive: true })
+    await writeFile(
+      manifestPath,
+      JSON.stringify(
+        {
+          iteration,
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'unknown-type',
+            title: '支付幂等性'
+          },
+          archiveRuns: [
+            {
+              runId: 'seed',
+              commit: 'pending',
+              documents: sampleArchiveDocs('docs/specs/old-spec.md')
+            }
+          ]
+        } as any,
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const markdownByPath = new Map([
+      ['docs/specs/支付幂等性.md', '# 支付幂等性回归测试\n详细内容']
+    ])
+    const target = await resolveIterationTarget(cwd, docs, markdownByPath)
+
+    const expectedSlug = toIterationSlug('支付幂等性回归测试')
+    expect(target.iteration).toBe(`${new Date().toISOString().slice(0, 10)}-${expectedSlug}`)
+    expect(target.slugSource).toEqual({
+      type: 'markdown-title',
+      path: 'docs/specs/支付幂等性.md',
+      title: '支付幂等性回归测试'
     })
   })
 

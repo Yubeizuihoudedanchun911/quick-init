@@ -17,6 +17,16 @@ interface LocalActiveIteration {
   updatedAt?: string
 }
 
+const validSlugSourceTypes = [
+  'markdown-title',
+  'filename',
+  'content-field',
+  'commit-message',
+  'fallback'
+] as const
+
+type SlugSourceType = (typeof validSlugSourceTypes)[number]
+
 function localActivePath(cwd: string): string {
   return path.join(cwd, '.quick-init', 'active-iteration.json')
 }
@@ -45,6 +55,27 @@ async function readActiveLocalIteration(cwd: string): Promise<LocalActiveIterati
   } catch {
     return null
   }
+}
+
+function isValidSlugSource(slugSource: unknown): slugSource is ArchiveManifest['slugSource'] {
+  if (!slugSource || typeof slugSource !== 'object' || Array.isArray(slugSource)) {
+    return false
+  }
+
+  const value = slugSource as Record<string, unknown>
+  if (typeof value.type !== 'string' || !validSlugSourceTypes.includes(value.type as SlugSourceType)) {
+    return false
+  }
+
+  if (typeof value.title !== 'string' || value.title.trim().length === 0) {
+    return false
+  }
+
+  if (value.path !== undefined && typeof value.path !== 'string') {
+    return false
+  }
+
+  return true
 }
 
 function sourceToSlugSource(doc: ArchiveDocument | undefined, markdownContentByPath: Map<string, string>): {
@@ -113,7 +144,12 @@ async function readActiveManifests(cwd: string): Promise<ArchiveManifest[]> {
         })
     )
     return manifests.filter((manifest): manifest is ArchiveManifest => {
-      return Boolean(manifest && manifest.status === 'active' && typeof manifest.iteration === 'string')
+      return Boolean(
+        manifest &&
+          manifest.status === 'active' &&
+          typeof manifest.iteration === 'string' &&
+          isValidSlugSource(manifest.slugSource)
+      )
     })
   } catch {
     return []
@@ -134,7 +170,7 @@ async function readIterationManifest(cwd: string, iterationPath: string): Promis
 export async function resolveIterationTarget(
   cwd: string,
   docs: ArchiveDocument[],
-  markdownContentByPath: Map<string, string>
+  markdownContentByPath: Map<string, string> = new Map()
 ): Promise<IterationTarget> {
   const local = await readActiveLocalIteration(cwd)
   if (local) {
