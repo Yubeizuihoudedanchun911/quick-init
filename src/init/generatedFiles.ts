@@ -3,7 +3,9 @@ import {
   claudeInstructions,
   codexInstructions,
   copilotInstructions,
+  claudeSettings,
   cursorGeneralRule,
+  cursorDomainRule,
   geminiInstructions,
   windsurfRules
 } from '../templates/aiTools.js'
@@ -22,6 +24,8 @@ export function buildGeneratedFiles(spec: InitializationSpec): GeneratedFile[] {
     committed('GEMINI.md', geminiInstructions(spec)),
     committed('.windsurfrules', windsurfRules(spec)),
     committed('.cursor/rules/general.mdc', cursorGeneralRule(spec)),
+    committed('.cursor/rules/domain.mdc', cursorDomainRule(spec)),
+    committed('.claude/settings.json', claudeSettings(spec)),
     committed('.github/copilot-instructions.md', copilotInstructions(spec))
   ]
 

@@ -48,3 +48,31 @@ Project: ${spec.project.name}
 Use .coding-rules/ as the shared rule source.
 `
 }
+
+export function claudeSettings(spec: InitializationSpec): string {
+  return JSON.stringify(
+    {
+      hooks: {},
+      permissions: {},
+      quickInitArchiveIntent: `In ${spec.project.name}, generated governance documents will be classified and archived by quick-init workflows into docs/iterations/. This settings file is declarative only and does not embed archive business logic.`
+    },
+    null,
+    2
+  )
+}
+
+export function cursorDomainRule(spec: InitializationSpec): string {
+  return `---
+description: Domain governance rules
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+## Domain Focus
+
+Project domain: ${spec.project.domain}
+  Governance and decision-making in this repository should prioritize conventions relevant to ${spec.project.domain} domain practices.
+When generating or updating this project's documentation and agent rules, keep recommendations aligned to this domain and call out uncertainty with explicit placeholder-safe wording.
+`
+}
