@@ -38,6 +38,22 @@ function splitStagedLines(stdout: string): string[] {
   return stdout.split('\0').filter(Boolean)
 }
 
+function splitNameStatusLines(stdout: string): string[] {
+  return stdout
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const fields = line.split('\t').map((field) => {
+        if (field.startsWith('"') && field.endsWith('"')) {
+          return field.slice(1, -1)
+        }
+        return field
+      })
+      return fields.join('\t')
+    })
+}
+
 describe('runArchiveCommand', () => {
   it('returns failure when staged flag is not provided', async () => {
     const cwd = await makeTempRepo()
@@ -63,14 +79,18 @@ describe('runArchiveCommand', () => {
     const cwd = await makeTempRepo()
     await writeRepoFile(cwd, 'docs/specs/payment.md', '# 支付流程设计\n\n设计内容\n')
     await execFileAsync('git', ['add', 'docs/specs/payment.md'], { cwd })
+    await execFileAsync('git', ['commit', '-m', 'seed', '--no-gpg-sign'], { cwd })
+    await writeRepoFile(cwd, 'docs/specs/payment.md', '# 支付流程设计\n\n设计内容\n更新')
+    await execFileAsync('git', ['add', 'docs/specs/payment.md'], { cwd })
 
     const result = await runArchiveCommand(cwd, { staged: true })
     expect(result.ok).toBe(true)
+    const changedFiles = result.changedFiles ?? []
+    expect(changedFiles).toHaveLength(1)
 
-    const today = new Date().toISOString().slice(0, 10)
-    const expectedIteration = `${today}-${toIterationSlug('支付流程设计')}`
-    const iterationPath = `docs/iterations/${expectedIteration}`
-    const archivePath = `${iterationPath}/specs/payment.md`
+    const [archivePath] = changedFiles
+    const iterationPath = archivePath.replace('/specs/payment.md', '')
+    const expectedIteration = iterationPath.split('/').at(-1)
 
     await expect(readFile(path.join(cwd, archivePath), 'utf8')).resolves.toContain('设计内容')
     await expect(access(path.join(cwd, iterationPath, 'manifest.json'))).resolves.toBeUndefined()
@@ -86,11 +106,24 @@ describe('runArchiveCommand', () => {
     expect(activeState.iteration).toBe(expectedIteration)
     expect(activeState.iterationPath).toBe(iterationPath)
 
-    const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd })
-    const stagedPaths = splitStagedLines(stdout)
-    expect(stagedPaths).toContain(archivePath)
-    expect(stagedPaths).toContain(`${iterationPath}/manifest.json`)
-    expect(stagedPaths).toContain(`${iterationPath}/iteration.md`)
+    const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-status'], { cwd })
+    const stagedPaths = splitNameStatusLines(stdout)
+    const hasSourceRemovalStatus = stagedPaths.some(
+      (entry) =>
+        entry === `D\tdocs/specs/payment.md` || (entry.startsWith('R') && entry.includes('\tdocs/specs/payment.md\t'))
+    )
+    expect(hasSourceRemovalStatus).toBe(true)
+    const hasArchivedPathStaged = stagedPaths.some(
+      (entry) =>
+        (entry.startsWith('A\t') && entry.endsWith('/specs/payment.md')) ||
+        (entry.startsWith('R') && entry.endsWith('/specs/payment.md'))
+    )
+    expect(hasArchivedPathStaged).toBe(true)
+    expect(stagedPaths.some((entry) => entry.endsWith('/manifest.json'))).toBe(true)
+    expect(stagedPaths.some((entry) => entry.endsWith('/iteration.md'))).toBe(true)
+
+    const iterationMarkdown = await readFile(path.join(cwd, iterationPath, 'iteration.md'), 'utf8')
+    expect(iterationMarkdown).toContain(`AI summary unavailable for ${expectedIteration}`)
 
     expect(result.changedFiles).toEqual([archivePath])
   })
@@ -123,6 +156,52 @@ describe('runArchiveCommand', () => {
     await expect(readFile(path.join(cwd, iterationPath, 'iteration.md'), 'utf8')).resolves.toContain(
       '# ' + expectedIteration
     )
+  })
+
+  it('returns success and skips moving when archive is disabled', async () => {
+    const cwd = await makeTempRepo()
+    await writeRepoFile(cwd, 'docs/specs/payment.md', '# 支付流程设计\n\n')
+    await writeRepoFile(
+      cwd,
+      '.quick-init/config.json',
+      JSON.stringify({ archive: { enabled: false } })
+    )
+    await execFileAsync('git', ['add', 'docs/specs/payment.md'], { cwd })
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(true)
+    expect(result.message).toContain('Archive is disabled by local config')
+
+    const today = new Date().toISOString().slice(0, 10)
+    const expectedIteration = `${today}-${toIterationSlug('支付流程设计')}`
+    const iterationPath = `docs/iterations/${expectedIteration}`
+
+    await expect(access(path.join(cwd, 'docs/specs/payment.md'))).resolves.toBeUndefined()
+    await expect(access(path.join(cwd, iterationPath, 'manifest.json'))).rejects.toThrow()
+  })
+
+  it('rolls back all changed files when staging step fails', async () => {
+    const cwd = await makeTempRepo()
+    const sourcePath = 'docs/specs/payment.md'
+    const iterationPathPrefix = `docs/iterations/${new Date().toISOString().slice(0, 10)}-支付流程设计`
+    const archivePath = `${iterationPathPrefix}/specs/payment.md`
+
+    await writeRepoFile(cwd, sourcePath, '# 支付流程设计\n\n')
+    await execFileAsync('git', ['add', sourcePath], { cwd })
+
+    await writeFile(path.join(cwd, '.git', 'index.lock'), '', 'utf8')
+
+    const result = await runArchiveCommand(cwd, { staged: true })
+    expect(result.ok).toBe(false)
+
+    await expect(access(path.join(cwd, sourcePath))).resolves.toBeUndefined()
+    await expect(access(path.join(cwd, archivePath))).rejects.toThrow()
+    await expect(access(path.join(cwd, `${iterationPathPrefix}/manifest.json`))).rejects.toThrow()
+    await expect(access(path.join(cwd, `${iterationPathPrefix}/iteration.md`))).rejects.toThrow()
+    const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-status'], { cwd })
+    const stagedPaths = splitNameStatusLines(stdout)
+    expect(stagedPaths).toContain(`A\t${sourcePath}`)
+    expect(stagedPaths).not.toContain(`D\t${sourcePath}`)
   })
 
   it('returns failure when target resolution is ambiguous', async () => {
@@ -267,6 +346,27 @@ describe('manifest and iteration markdown', () => {
     expect(markdown).toContain(
       '- archive: docs/specs/payment.md -> docs/iterations/2026-06-28-支付归档/payment.md'
     )
+  })
+
+  it('renders summary fallback reason when provided', () => {
+    const manifest = buildManifest({
+      iteration: '2026-06-29-支付归档',
+      summaryStatus: 'degraded',
+      slugSource: {
+        type: 'filename',
+        path: 'docs/specs/payment.md',
+        title: 'payment'
+      },
+      documents: [],
+      runId: '2026-06-29T10-00-00'
+    })
+
+    const markdown = renderIterationMarkdown(manifest, {
+      fallbackSummaryReason: 'AI summary unavailable for 2026-06-29-支付归档'
+    })
+
+    expect(markdown).toContain('## Summary Fallback')
+    expect(markdown).toContain('AI summary unavailable for 2026-06-29-支付归档')
   })
 })
 

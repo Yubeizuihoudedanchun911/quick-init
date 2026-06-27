@@ -1,12 +1,12 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { CommandResult } from '../core/types.js'
 import { QuickInitError } from '../core/errors.js'
 import { runGit } from '../git/git.js'
 import { ensureLocalConfig } from '../local/config.js'
+import { clearActiveIteration, readActiveIteration, writeActiveIteration } from '../local/state.js'
 import { summarizeArchive } from '../ai/summary.js'
-import { writeActiveIteration } from '../local/state.js'
 import { classifyMarkdown } from './classifier.js'
 import { resolveIterationTarget } from './activeIteration.js'
 import { buildManifest } from './manifest.js'
@@ -15,6 +15,11 @@ import type { ArchiveDocument, SummaryStatus } from '../core/types.js'
 
 interface ArchiveCommandOptions {
   staged: boolean
+}
+
+interface MovedArchiveFile {
+  sourcePath: string
+  archivePath: string
 }
 
 function errorMessage(error: unknown): string {
@@ -33,47 +38,94 @@ async function getStagedMarkdownFiles(cwd: string): Promise<string[]> {
     .filter((item) => item.endsWith('.md'))
 }
 
+async function readTextOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+async function safeUnstage(cwd: string, paths: string[]): Promise<void> {
+  for (const changedPath of paths) {
+    try {
+      await runGit(cwd, ['reset', '--', changedPath])
+    } catch {
+      // best-effort rollback; ignore staging unstage failures
+    }
+  }
+}
+
+async function rollbackWriteFile(filePath: string, previousContent: string | null): Promise<void> {
+  try {
+    if (previousContent !== null) {
+      await writeFile(filePath, previousContent, 'utf8')
+      return
+    }
+    await rm(filePath, { force: true })
+  } catch {
+    // best-effort rollback
+  }
+}
+
 export async function runArchiveCommand(cwd: string, options: ArchiveCommandOptions): Promise<CommandResult> {
   if (!options.staged) {
     return { ok: false, message: 'archive requires --staged' }
   }
 
+  const config = await ensureLocalConfig(cwd)
+  if (!config.archive.enabled) {
+    return { ok: true, message: 'Archive is disabled by local config' }
+  }
+
+  const stagedMarkdownFiles = await getStagedMarkdownFiles(cwd)
+  if (stagedMarkdownFiles.length === 0) {
+    return { ok: true, message: 'No staged Markdown files' }
+  }
+
+  const markdownByPath = new Map<string, string>()
+  const documents = await Promise.all(
+    stagedMarkdownFiles.map(async (sourcePath) => {
+      const content = await readFile(path.join(cwd, sourcePath), 'utf8')
+      markdownByPath.set(sourcePath, content)
+      return classifyMarkdown(sourcePath, content)
+    })
+  )
+
+  let target
   try {
-    const config = await ensureLocalConfig(cwd)
-    if (!config.archive.enabled) {
-      return { ok: true, message: 'Archive is disabled by local config' }
+    target = await resolveIterationTarget(cwd, documents, markdownByPath)
+  } catch (error) {
+    if (error instanceof QuickInitError) {
+      return { ok: false, message: error.message }
     }
+    throw error
+  }
 
-    const stagedMarkdownFiles = await getStagedMarkdownFiles(cwd)
-    if (stagedMarkdownFiles.length === 0) {
-      return { ok: true, message: 'No staged Markdown files' }
-    }
+  const iterationPath = path.join(cwd, target.iterationPath)
+  const manifestPath = path.join(iterationPath, 'manifest.json')
+  const iterationMarkdownPath = path.join(iterationPath, 'iteration.md')
+  const previousManifest = await readTextOrNull(manifestPath)
+  const previousIterationMarkdown = await readTextOrNull(iterationMarkdownPath)
+  const previousActive = await readActiveIteration(cwd)
 
-    const markdownByPath = new Map<string, string>()
-    const documents = await Promise.all(
-      stagedMarkdownFiles.map(async (sourcePath) => {
-        const content = await readFile(path.join(cwd, sourcePath), 'utf8')
-        markdownByPath.set(sourcePath, content)
-        return classifyMarkdown(sourcePath, content)
-      })
-    )
+  const movedArchiveFiles: MovedArchiveFile[] = []
+  const stagedRestoreTargets: string[] = []
+  const createdFiles: string[] = []
+  let activeIterationWritten = false
 
-    let target
-    try {
-      target = await resolveIterationTarget(cwd, documents, markdownByPath)
-    } catch (error) {
-      if (error instanceof QuickInitError) {
-        return { ok: false, message: error.message }
-      }
-      throw error
-    }
-
+  try {
     const processedDocuments: ArchiveDocument[] = []
     for (const doc of documents) {
       if (doc.action === 'archive') {
-        const archiveRelativePath = toPosix(path.join(target.iterationPath, doc.category, path.basename(doc.sourcePath)))
+        const archiveRelativePath = toPosix(
+          path.join(target.iterationPath, doc.category, path.basename(doc.sourcePath))
+        )
+        const absoluteArchivePath = path.join(cwd, archiveRelativePath)
         await mkdir(path.join(cwd, target.iterationPath, doc.category), { recursive: true })
-        await rename(path.join(cwd, doc.sourcePath), path.join(cwd, archiveRelativePath))
+        await rename(path.join(cwd, doc.sourcePath), absoluteArchivePath)
+        movedArchiveFiles.push({ sourcePath: doc.sourcePath, archivePath: archiveRelativePath })
+        stagedRestoreTargets.push(doc.sourcePath)
         processedDocuments.push({ ...doc, archivePath: archiveRelativePath })
       } else {
         processedDocuments.push(doc)
@@ -88,33 +140,43 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
       runId: new Date().toISOString().replace(/[:.]/g, '-')
     })
 
-    let summaryStatus: SummaryStatus
-    let summaryMarkdown: string | undefined
+    let summary: { status: SummaryStatus; markdown?: string; reason?: string } = {
+      status: 'degraded',
+      reason: `AI summary unavailable for ${target.iteration}`
+    }
     try {
-      const summary = await summarizeArchive(manifest)
-      summaryStatus = summary.status
-      summaryMarkdown = summary.markdown
+      summary = await summarizeArchive(manifest)
     } catch {
-      summaryStatus = 'degraded'
+      summary = {
+        status: 'degraded',
+        reason: `AI summary unavailable for ${target.iteration}`
+      }
+    }
+    if (summary.status === 'degraded' && !summary.reason) {
+      summary.reason = `AI summary unavailable for ${target.iteration}`
     }
 
-    manifest.summaryStatus = summaryStatus
-    const iterationMarkdown = summaryMarkdown ?? renderIterationMarkdown(manifest)
-    await mkdir(path.join(cwd, target.iterationPath), { recursive: true })
-    await writeFile(path.join(cwd, target.iterationPath, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
-    await writeFile(path.join(cwd, target.iterationPath, 'iteration.md'), iterationMarkdown, 'utf8')
+    manifest.summaryStatus = summary.status
+    const renderFallbackReason =
+      summary.status === 'degraded' && summary.reason ? { fallbackSummaryReason: summary.reason } : undefined
+    const iterationMarkdown = summary.markdown ?? renderIterationMarkdown(manifest, renderFallbackReason)
+
+    await mkdir(iterationPath, { recursive: true })
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    await writeFile(iterationMarkdownPath, iterationMarkdown, 'utf8')
+    createdFiles.push(manifestPath, iterationMarkdownPath)
 
     await writeActiveIteration(cwd, {
       iteration: target.iteration,
       iterationPath: target.iterationPath,
       updatedAt: new Date().toISOString()
     })
+    activeIterationWritten = true
 
     if (config.archive.autoStage) {
-      const movedSources = processedDocuments.filter((doc) => doc.action === 'archive').map((doc) => doc.sourcePath)
       await runGit(cwd, ['add', '--', target.iterationPath])
-      if (movedSources.length > 0) {
-        await runGit(cwd, ['add', '-u', '--', ...movedSources])
+      if (stagedRestoreTargets.length > 0) {
+        await runGit(cwd, ['add', '-u', '--', ...stagedRestoreTargets])
       }
     }
 
@@ -124,6 +186,43 @@ export async function runArchiveCommand(cwd: string, options: ArchiveCommandOpti
       changedFiles: processedDocuments.map((doc) => doc.archivePath ?? doc.sourcePath)
     }
   } catch (error) {
+    for (const moved of movedArchiveFiles) {
+      const sourceAbsolute = path.join(cwd, moved.sourcePath)
+      const archiveAbsolute = path.join(cwd, moved.archivePath)
+      try {
+        await rename(archiveAbsolute, sourceAbsolute)
+      } catch {
+        // best-effort rollback; ignore rename failures while restoring source
+      }
+      try {
+        await rm(archiveAbsolute, { force: true })
+      } catch {
+        // best-effort cleanup for residual archive files
+      }
+    }
+
+    for (const file of createdFiles) {
+      if (file === manifestPath) {
+        await rollbackWriteFile(file, previousManifest)
+        continue
+      }
+      if (file === iterationMarkdownPath) {
+        await rollbackWriteFile(file, previousIterationMarkdown)
+      }
+    }
+
+    if (config.archive.autoStage) {
+      await safeUnstage(cwd, [target.iterationPath, ...stagedRestoreTargets])
+    }
+
+    if (activeIterationWritten) {
+      if (previousActive) {
+        await writeActiveIteration(cwd, previousActive)
+      } else {
+        await clearActiveIteration(cwd)
+      }
+    }
+
     return { ok: false, message: errorMessage(error) }
   }
 }

@@ -1,5 +1,9 @@
 import { ArchiveManifest } from '../core/types.js'
 
+interface RenderIterationMarkdownOptions {
+  fallbackSummaryReason?: string
+}
+
 function renderArchivedDocuments(manifest: ArchiveManifest): string {
   const documents = manifest.archiveRuns.flatMap((run) => run.documents)
   if (!documents.length) {
@@ -10,12 +14,20 @@ function renderArchivedDocuments(manifest: ArchiveManifest): string {
     .join('\n')
 }
 
-export function renderIterationMarkdown(manifest: ArchiveManifest): string {
+export function renderIterationMarkdown(
+  manifest: ArchiveManifest,
+  options: RenderIterationMarkdownOptions = {}
+): string {
+  const fallbackSummarySection = options.fallbackSummaryReason
+    ? `\n## Summary Fallback\n\n${options.fallbackSummaryReason}\n`
+    : ''
+
   return `# ${manifest.iteration}
 
 ## Summary Status
 
 summary_status: ${manifest.summaryStatus}
+${fallbackSummarySection}
 
 ## Archived Documents
 
