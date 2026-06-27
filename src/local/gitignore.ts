@@ -1,6 +1,21 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+function hasQuickInitIgnore(content: string): boolean {
+  return content.split(/\r?\n/).some((line) => line.trim() === '.quick-init/')
+}
+
+function appendQuickInitIgnore(content: string): string {
+  const lineEnding = content.includes('\r\n') ? '\r\n' : '\n'
+
+  if (content.length === 0) {
+    return `.quick-init/${lineEnding}`
+  }
+
+  const normalized = content.endsWith('\n') || content.endsWith('\r') ? content : `${content}${lineEnding}`
+  return `${normalized}.quick-init/${lineEnding}`
+}
+
 export async function ensureQuickInitIgnored(cwd: string): Promise<void> {
   const file = path.join(cwd, '.gitignore')
   let current = ''
@@ -9,9 +24,8 @@ export async function ensureQuickInitIgnored(cwd: string): Promise<void> {
   } catch {
     current = ''
   }
-  const lines = current.split(/\r?\n/).filter((line) => line.length > 0)
-  if (!lines.includes('.quick-init/')) {
-    lines.push('.quick-init/')
+  if (!hasQuickInitIgnore(current)) {
+    current = appendQuickInitIgnore(current)
   }
-  await writeFile(file, `${lines.join('\n')}\n`, 'utf8')
+  await writeFile(file, current, 'utf8')
 }
