@@ -123,6 +123,88 @@ describe('resolveIterationTarget', () => {
     })
   })
 
+  it('ignores local iterationPath and constrains resolved iterationPath to docs/iterations/<iteration>', async () => {
+    const cwd = await tempDir()
+    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
+    await mkdir(path.dirname(localActivePath), { recursive: true })
+    await writeFile(
+      localActivePath,
+      JSON.stringify(
+        {
+          iteration: '2026-06-27-escape',
+          iterationPath: '../../escape',
+          updatedAt: '2026-06-27T10:00:00.000Z'
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const docs = sampleArchiveDocs()
+    const target = await resolveIterationTarget(cwd, docs)
+
+    expect(target).toEqual({
+      iteration: '2026-06-27-escape',
+      iterationPath: 'docs/iterations/2026-06-27-escape',
+      slugSource: {
+        type: 'fallback',
+        title: '2026-06-27-escape'
+      }
+    })
+  })
+
+  it('falls back to fallback slugSource when local active manifest has invalid slugSource', async () => {
+    const cwd = await tempDir()
+    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
+    await mkdir(path.dirname(localActivePath), { recursive: true })
+    await writeFile(
+      localActivePath,
+      JSON.stringify(
+        {
+          iteration: '2026-06-27-local',
+          iterationPath: 'docs/iterations/2026-06-27-local',
+          updatedAt: '2026-06-27T10:00:00.000Z'
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+    const localManifestPath = path.join(cwd, 'docs', 'iterations', '2026-06-27-local', 'manifest.json')
+    await mkdir(path.dirname(localManifestPath), { recursive: true })
+    await writeFile(
+      localManifestPath,
+      JSON.stringify(
+        {
+          iteration: '2026-06-27-local',
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'unknown-type',
+            title: '错误类型'
+          },
+          archiveRuns: []
+        } as any,
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const docs = sampleArchiveDocs()
+    const target = await resolveIterationTarget(cwd, docs)
+
+    expect(target).toEqual({
+      iteration: '2026-06-27-local',
+      iterationPath: 'docs/iterations/2026-06-27-local',
+      slugSource: {
+        type: 'fallback',
+        title: '2026-06-27-local'
+      }
+    })
+  })
+
   it('reuses an existing active manifest when iteration suffix matches slug', async () => {
     const cwd = await tempDir()
     const docs: ArchiveDocument[] = sampleArchiveDocs()
@@ -164,6 +246,50 @@ describe('resolveIterationTarget', () => {
       type: 'markdown-title',
       path: 'docs/specs/old-spec.md',
       title: '支付流程设计'
+    })
+  })
+
+  it('ignores suffix-matched active manifests with non-date formatting and creates a new iteration', async () => {
+    const cwd = await tempDir()
+    const docs: ArchiveDocument[] = sampleArchiveDocs('docs/specs/子标题.md')
+    const iteration = '2026-06-26-foo-bar'
+    const manifestPath = path.join(cwd, 'docs', 'iterations', iteration, 'manifest.json')
+    await mkdir(path.dirname(manifestPath), { recursive: true })
+    await writeFile(
+      manifestPath,
+      JSON.stringify(
+        {
+          iteration,
+          status: 'active',
+          summaryStatus: 'generated',
+          slugSource: {
+            type: 'markdown-title',
+            path: 'docs/specs/old-spec.md',
+            title: 'foo-bar'
+          },
+          archiveRuns: [
+            {
+              runId: 'seed',
+              commit: 'pending',
+              documents: sampleArchiveDocs('docs/specs/old-spec.md')
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const markdownByPath = new Map([['docs/specs/子标题.md', '# bar\n详细内容']])
+    const target = await resolveIterationTarget(cwd, docs, markdownByPath)
+
+    expect(target.iteration).toBe(`${new Date().toISOString().slice(0, 10)}-bar`)
+    expect(target.iterationPath).toBe(`docs/iterations/${target.iteration}`)
+    expect(target.slugSource).toEqual({
+      type: 'markdown-title',
+      path: 'docs/specs/子标题.md',
+      title: 'bar'
     })
   })
 

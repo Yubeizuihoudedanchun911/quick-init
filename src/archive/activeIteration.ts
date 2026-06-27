@@ -13,7 +13,7 @@ export interface IterationTarget {
 
 interface LocalActiveIteration {
   iteration: string
-  iterationPath: string
+  iterationPath?: string
   updatedAt?: string
 }
 
@@ -40,13 +40,11 @@ async function readActiveLocalIteration(cwd: string): Promise<LocalActiveIterati
       typeof data === 'object' &&
       data !== null &&
       typeof data.iteration === 'string' &&
-      data.iteration.trim().length > 0 &&
-      typeof data.iterationPath === 'string' &&
-      data.iterationPath.trim().length > 0
+      data.iteration.trim().length > 0
     ) {
       return {
         iteration: data.iteration,
-        iterationPath: data.iterationPath,
+        iterationPath: typeof data.iterationPath === 'string' ? data.iterationPath : undefined,
         updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined
       }
     }
@@ -167,6 +165,14 @@ async function readIterationManifest(cwd: string, iterationPath: string): Promis
   }
 }
 
+function iterationSlug(iteration: string): string {
+  const dateMatch = iteration.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/)
+  if (dateMatch) {
+    return dateMatch[2]
+  }
+  return iteration
+}
+
 export async function resolveIterationTarget(
   cwd: string,
   docs: ArchiveDocument[],
@@ -174,21 +180,23 @@ export async function resolveIterationTarget(
 ): Promise<IterationTarget> {
   const local = await readActiveLocalIteration(cwd)
   if (local) {
-    const manifest = await readIterationManifest(cwd, local.iterationPath)
+    const iterationPath = `docs/iterations/${local.iteration}`
+    const manifest = await readIterationManifest(cwd, iterationPath)
+    let localSlugSource: ArchiveManifest['slugSource'] = { type: 'fallback', title: local.iteration }
+    if (manifest && isValidSlugSource(manifest.slugSource)) {
+      localSlugSource = manifest.slugSource
+    }
     return {
       iteration: local.iteration,
-      iterationPath: local.iterationPath,
-      slugSource: manifest?.slugSource ?? {
-        type: 'fallback',
-        title: local.iteration
-      }
+      iterationPath,
+      slugSource: localSlugSource
     }
   }
 
   const primaryDoc = docs.find((doc) => doc.action === 'archive') ?? docs[0]
   const { slugSource, slug } = sourceToSlugSource(primaryDoc, markdownContentByPath)
   const manifests = await readActiveManifests(cwd)
-  const matchedManifest = manifests.find((manifest) => manifest.iteration.endsWith(`-${slug}`) || manifest.iteration.endsWith(slug))
+  const matchedManifest = manifests.find((manifest) => iterationSlug(manifest.iteration) === slug)
 
   if (matchedManifest) {
     return {
