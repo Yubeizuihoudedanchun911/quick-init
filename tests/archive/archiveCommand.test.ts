@@ -151,6 +151,39 @@ describe('resolveIterationTarget', () => {
     })
   })
 
+  it('ignores local active iteration with path traversal value and falls back to docs filename slug', async () => {
+    const cwd = await tempDir()
+    const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
+    await mkdir(path.dirname(localActivePath), { recursive: true })
+    await writeFile(
+      localActivePath,
+      JSON.stringify(
+        {
+          iteration: '../../escape',
+          iterationPath: 'docs/iterations/../../escape',
+          updatedAt: '2026-06-27T10:00:00.000Z'
+        },
+        null,
+        2
+      ),
+      'utf8'
+    )
+
+    const docs = sampleArchiveDocs()
+    const target = await resolveIterationTarget(cwd, docs)
+    const expectedIteration = `${new Date().toISOString().slice(0, 10)}-${toIterationSlug('payment')}`
+
+    expect(target.iteration).toBe(expectedIteration)
+    expect(target.iteration).not.toBe('../../escape')
+    expect(target.iterationPath).toBe(`docs/iterations/${expectedIteration}`)
+    expect(target.iterationPath).not.toBe('docs/iterations/../../escape')
+    expect(target.slugSource).toEqual({
+      type: 'filename',
+      path: 'docs/specs/payment.md',
+      title: 'payment'
+    })
+  })
+
   it('reuses valid slugSource from local active manifest and normalizes iterationPath', async () => {
     const cwd = await tempDir()
     const localActivePath = path.join(cwd, '.quick-init', 'active-iteration.json')
@@ -436,7 +469,7 @@ describe('resolveIterationTarget', () => {
     const target = await resolveIterationTarget(cwd, docs, markdownByPath)
 
     const expectedSlug = toIterationSlug('支付幂等性回归测试')
-    expect(target.iteration).toContain(`${new Date().toISOString().slice(0, 10)}-${expectedSlug}`)
+    expect(target.iteration).toBe(`${new Date().toISOString().slice(0, 10)}-${expectedSlug}`)
     expect(target.iterationPath).toBe(`docs/iterations/${target.iteration}`)
     expect(target.slugSource).toEqual({
       type: 'markdown-title',

@@ -31,6 +31,24 @@ function localActivePath(cwd: string): string {
   return path.join(cwd, '.quick-init', 'active-iteration.json')
 }
 
+function sanitizeLocalIteration(iteration: string): string | null {
+  const trimmed = iteration.trim()
+  if (trimmed.length === 0 || trimmed !== iteration) {
+    return null
+  }
+
+  if (trimmed.includes('/') || trimmed.includes('\\')) {
+    return null
+  }
+
+  const segments = trimmed.split(/[/\\]/)
+  if (segments.some((segment) => segment === '.' || segment === '..' || segment.length === 0)) {
+    return null
+  }
+
+  return trimmed
+}
+
 async function readActiveLocalIteration(cwd: string): Promise<LocalActiveIteration | null> {
   try {
     const raw = await readFile(localActivePath(cwd), 'utf8')
@@ -39,11 +57,15 @@ async function readActiveLocalIteration(cwd: string): Promise<LocalActiveIterati
     if (
       typeof data === 'object' &&
       data !== null &&
-      typeof data.iteration === 'string' &&
-      data.iteration.trim().length > 0
+      typeof data.iteration === 'string'
     ) {
+      const iteration = sanitizeLocalIteration(data.iteration)
+      if (!iteration) {
+        return null
+      }
+
       return {
-        iteration: data.iteration,
+        iteration,
         iterationPath: typeof data.iterationPath === 'string' ? data.iterationPath : undefined,
         updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined
       }
