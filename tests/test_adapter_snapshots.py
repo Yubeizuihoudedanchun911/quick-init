@@ -61,6 +61,15 @@ def init_repo_with_staged_markdown(
     return repo_root, trigger
 
 
+def write_stale_governance_state(repo_root: Path, hash_value: str = "stale-hash") -> None:
+    state_file = repo_root / ".quick-init/state/last-governance-run.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps({"stagedDocsHash": hash_value}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 def compute_staged_markdown_hash(repo_root: Path, staged_files: list[str]) -> str:
     digest = hashlib.sha256()
     for path in staged_files:
@@ -171,15 +180,37 @@ def test_codex_trigger_user_prompt_submit_noop_for_non_submission_intent(tmp_pat
     assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
 
 
+@pytest.mark.parametrize(
+    "prompt_text",
+    [
+        "请解释 git commit 和 git push 的区别，不要提交任何东西",
+        "what is the difference between git commit and git push?",
+    ],
+)
+def test_codex_trigger_user_prompt_submit_noop_for_false_positive_prompts(
+    tmp_path: Path, prompt_text: str
+) -> None:
+    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
+    output = run_trigger_trigger(
+        trigger,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": str(repo_root),
+            "prompt": prompt_text,
+        },
+        cwd=repo_root,
+    )
+
+    assert output["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "decision" not in output
+    assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
+
+
 def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) -> None:
     repo_root, trigger = init_repo_with_staged_markdown(
         tmp_path, doc_name="nested-doc.md", doc_text="# stale notes"
     )
-    state_file = repo_root / ".quick-init/state/last-governance-run.json"
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(
-        json.dumps({"stagedDocsHash": "stale-hash"}, ensure_ascii=False), encoding="utf-8"
-    )
+    write_stale_governance_state(repo_root)
 
     output = run_trigger_trigger(
         trigger,
@@ -187,6 +218,37 @@ def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) 
             "hook_event_name": "UserPromptSubmit",
             "cwd": str(repo_root),
             "message": "请帮我提交这次变更并推送",
+        },
+        cwd=repo_root,
+    )
+
+    assert output["decision"] == "block"
+    reason = output.get("reason")
+    assert isinstance(reason, str) and reason.strip()
+
+
+@pytest.mark.parametrize(
+    "prompt_text",
+    [
+        "提交这些改动",
+        "git commit and push",
+        "prepare commit",
+        "发布这个分支",
+    ],
+)
+def test_codex_trigger_user_prompt_submit_blocks_stale_markdown_for_action_prompt(
+    tmp_path: Path, prompt_text: str
+) -> None:
+    repo_root, trigger = init_repo_with_staged_markdown(
+        tmp_path, doc_name="nested-doc.md", doc_text="# stale notes"
+    )
+    write_stale_governance_state(repo_root)
+    output = run_trigger_trigger(
+        trigger,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": str(repo_root),
+            "message": prompt_text,
         },
         cwd=repo_root,
     )

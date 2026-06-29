@@ -50,22 +50,45 @@ def _extract_submission_prompt(payload: dict[str, object]) -> str:
 
 def is_submission_related_prompt(prompt_text: str) -> bool:
     lowered = prompt_text.lower()
-    if any(
-        keyword in lowered
-        for keyword in ("提交", "推送", "发布", "结束迭代", "commit-governance")
-    ):
+
+    if any(keyword in lowered for keyword in ("结束迭代", "commit-governance")):
         return True
 
-    patterns = [
-        r"\bgit\s+commit\b",
-        r"\bgit\s+push\b",
+    if re.search(r"(?:请\s*)?(?:先\s*)?(?:不要|不想|不能|别)\S{0,6}?(?:提交|推送|发布|git\s+commit|git\s+push|commit|push)", lowered):
+        return False
+
+    if "difference" in lowered and "git commit" in lowered and "git push" in lowered:
+        return False
+    if "difference" in lowered and "commit" in lowered and "push" in lowered:
+        return False
+    if ("解释" in lowered or "说明" in lowered) and (
+        "git commit" in lowered
+        or "git push" in lowered
+        or "commit" in lowered
+        or "push" in lowered
+    ):
+        return False
+    if re.search(r"\b(?:do not|don't|not|never)\b.*\b(?:submit|commit|push|publish)\b", lowered):
+        return False
+    if re.search(r"\bwhat\b.*\b(?:is|are)\b.*\bdifference\b", lowered) and (
+        "git commit" in lowered or "commit" in lowered or "git push" in lowered or "push" in lowered
+    ):
+        return False
+
+    action_patterns = [
+        r"\b提交(?:这些?|这次|当前|我的|全部|所有|部分)?(?:改动|变更|内容|文件)?",
+        r"\b(?:请|帮我|请帮我)\s*提交(?:这些?|这次)?(?:改动|变更|文件)?",
+        r"\b发布(?:这个|该)?分支\b",
+        r"\bprepare\s+commit\b",
+        r"\bgit\s+commit\b(?:\s+(?:and\s+push|-[A-Za-z0-9_-]+|\s+[^\s]+))*",
+        r"\bgit\s+push\b(?:\s+[-\\/]?[A-Za-z0-9_./-]+|\s+\S+)?",
         r"\bcommit\b",
-        r"\bpublish\b",
         r"\bpush\b",
+        r"\bpublish\b",
         r"\bfinal(?:ize|ise|ized|izing)\s+iteration\b",
         r"\bend\s+iteration\b",
     ]
-    return any(re.search(pattern, lowered) for pattern in patterns)
+    return any(re.search(pattern, lowered) for pattern in action_patterns)
 
 
 def staged_markdown_files(root: Path) -> list[str]:
