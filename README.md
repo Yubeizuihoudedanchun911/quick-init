@@ -24,10 +24,24 @@ git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git ~/.claude/sk
 
 Before implementation, verify the current official installation path for the agent you use.
 
+## Init Flow
+
+When invoked by a coding agent, this Skill asks for:
+
+- project name
+- one-sentence project goal
+- primary language
+- whether to install Codex, Claude, or both
+- first iteration name
+
+The agent then reads the templates in this repository and creates the target repository's governance files directly. It creates the seed iteration before installing the Git pre-commit guard so the first guarded commit has the required `iteration.md`, `manifest.json`, and changelog state.
+
 ## Generated Project Shape
 
 ```text
 .coding-rules/
+.codex/
+.claude/
 docs/
   onboard/
   architecture/
@@ -41,6 +55,16 @@ GEMINI.md
 ```
 
 `quick-init` creates governance files and directories only. It does not create package files, runtime configuration, business source code, or test examples for the target project.
+
+## Agent Integrations
+
+Selected integrations are rendered from `templates/agent-integrations/**`:
+
+- Codex: `.codex/hooks.json`, `.codex/agents/commit-governance.toml`, and a hook trigger script.
+- Claude: `.claude/settings.json`, `.claude/agents/commit-governance.md`, and a hook trigger wrapper.
+- Git: a pre-commit guard checks staged governance state against `.quick-init/state/last-governance-run.json`.
+
+Commit-governance work is delegated to the selected coding agent's subagent configuration. The main agent keeps the product task context clean while the subagent handles iteration manifest, changelog synchronization, and staged documentation checks.
 
 ## Development Checks
 
