@@ -16,13 +16,59 @@
 
 ## 快速开始
 
+当前仓库还没有发布到 npm。推荐先从 GitHub 源码安装。
+
+### 从 GitHub 源码安装为全局命令
+
 ```bash
+git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git
+cd quick-init
+npm install
+npm run build
+npm link
+```
+
+安装后可以在任意项目里运行：
+
+```bash
+quick-init init "TypeScript CLI 工具"
+```
+
+### 不安装全局命令，直接运行
+
+如果只想临时使用，也可以直接运行构建后的入口：
+
+```bash
+git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git
+cd quick-init
 npm install
 npm run build
 node dist/cli.js init "TypeScript CLI 工具"
 ```
 
-作为已安装的 CLI 使用时：
+### 在一个新项目中使用
+
+```bash
+mkdir my-project
+cd my-project
+git init
+quick-init init "我的业务项目"
+```
+
+如果没有执行 `npm link`，使用源码路径运行：
+
+```bash
+node /path/to/quick-init/dist/cli.js init "我的业务项目"
+```
+
+初始化后，按正常 Git 流程查看生成状态和初始化提交：
+
+```bash
+git status --short
+git log --oneline --max-count=1
+```
+
+### 常用命令
 
 ```bash
 quick-init init "TypeScript CLI 工具"
@@ -159,7 +205,11 @@ git commit -m "docs: close payment iteration"
 
 ## 开发
 
+如果你要修改 quick-init 自身：
+
 ```bash
+git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git
+cd quick-init
 npm install
 npm test
 npm run typecheck
@@ -194,13 +244,59 @@ node dist/cli.js
 
 ## Quick Start
 
+This repository is not published to npm yet. Install it from GitHub source for now.
+
+### Install from GitHub as a global command
+
 ```bash
+git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git
+cd quick-init
+npm install
+npm run build
+npm link
+```
+
+After linking, run it from any project:
+
+```bash
+quick-init init "TypeScript CLI tool"
+```
+
+### Run without global installation
+
+For temporary usage, run the built entrypoint directly:
+
+```bash
+git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git
+cd quick-init
 npm install
 npm run build
 node dist/cli.js init "TypeScript CLI tool"
 ```
 
-When installed as a CLI:
+### Use in a New Project
+
+```bash
+mkdir my-project
+cd my-project
+git init
+quick-init init "My business project"
+```
+
+If you did not run `npm link`, call the built source path directly:
+
+```bash
+node /path/to/quick-init/dist/cli.js init "My business project"
+```
+
+After initialization, inspect the generated governance commit with regular Git commands:
+
+```bash
+git status --short
+git log --oneline --max-count=1
+```
+
+### Common Commands
 
 ```bash
 quick-init init "TypeScript CLI tool"
@@ -337,7 +433,11 @@ After close, the manifest `status` is `closed`, so later archive runs will not r
 
 ## Development
 
+To work on quick-init itself:
+
 ```bash
+git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git
+cd quick-init
 npm install
 npm test
 npm run typecheck
