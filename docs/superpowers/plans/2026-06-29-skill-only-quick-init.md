@@ -276,7 +276,7 @@ def test_readme_and_skill_do_not_advertise_old_cli_commands() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_repository_cleanup.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_repository_cleanup.py -q
 ```
 
 Expected:
@@ -367,7 +367,7 @@ GEMINI.md
 Repository validation uses Python 3 and pytest.
 
 ```bash
-python3 -m pytest
+/opt/anaconda3/envs/py311env/bin/python -m pytest
 ```
 ```
 
@@ -475,7 +475,7 @@ def test_skill_mentions_real_agent_hook_locations() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_repository_cleanup.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_repository_cleanup.py -q
 ```
 
 Expected:
@@ -572,7 +572,7 @@ def test_docs_template_excludes_removed_top_level_dirs() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_templates.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_templates.py -q
 ```
 
 Expected:
@@ -721,7 +721,7 @@ Cross-iteration summaries are managed through quick-init marker blocks. Manual n
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_templates.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_templates.py -q
 ```
 
 Expected:
@@ -804,7 +804,7 @@ def test_slug_rules_are_explicit() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_rules.py tests/test_slug_rules.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_rules.py tests/test_slug_rules.py -q
 ```
 
 Expected:
@@ -917,7 +917,7 @@ Return only a short summary to the main agent.
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_rules.py tests/test_slug_rules.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_rules.py tests/test_slug_rules.py -q
 ```
 
 Expected:
@@ -991,7 +991,7 @@ def test_codex_agent_template_matches_snapshot() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_adapter_snapshots.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_adapter_snapshots.py -q
 ```
 
 Expected:
@@ -1169,7 +1169,7 @@ if __name__ == "__main__":
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_adapter_snapshots.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_adapter_snapshots.py -q
 ```
 
 Expected:
@@ -1231,7 +1231,7 @@ def test_claude_agent_template_matches_snapshot() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_adapter_snapshots.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_adapter_snapshots.py -q
 ```
 
 Expected:
@@ -1348,7 +1348,7 @@ exec python3 "$ROOT/.quick-init/hooks/agent-trigger.py" "${1:-unknown}"
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_adapter_snapshots.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_adapter_snapshots.py -q
 ```
 
 Expected:
@@ -1411,7 +1411,7 @@ def test_guard_template_cleans_old_quick_init_hook_block() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_guard_script.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_guard_script.py -q
 ```
 
 Expected:
@@ -1504,7 +1504,7 @@ if __name__ == "__main__":
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_guard_script.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_guard_script.py -q
 ```
 
 Expected:
@@ -1574,7 +1574,7 @@ def test_skill_flow_requires_seed_iteration_before_guard() -> None:
 Run:
 
 ```bash
-rtk python3 -m pytest tests/test_skill_flow.py -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest tests/test_skill_flow.py -q
 ```
 
 Expected:
@@ -1604,7 +1604,7 @@ Modify `README.md` development section:
 ## Development Checks
 
 ```bash
-python3 -m pytest
+/opt/anaconda3/envs/py311env/bin/python -m pytest
 ```
 
 Implementation work must keep the repository free of Node, npm, TypeScript, Vitest, old CLI entrypoints, and old generated docs directories.
@@ -1615,7 +1615,7 @@ Implementation work must keep the repository free of Node, npm, TypeScript, Vite
 Run:
 
 ```bash
-rtk python3 -m pytest -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest -q
 ```
 
 Expected:
@@ -1655,7 +1655,7 @@ commit created
 Run:
 
 ```bash
-rtk python3 -m pytest -q
+rtk /opt/anaconda3/envs/py311env/bin/python -m pytest -q
 rtk rg -n "quick-init init|quick-init archive|quick-init iteration|npm link|npm install|vitest|tsconfig|package.json" README.md SKILL.md templates tests docs/superpowers/specs/2026-06-29-skill-only-quick-init-design.md
 rtk git status --short --branch
 ```
@@ -1718,7 +1718,7 @@ Implemented the Skill-only quick-init template repository and removed the legacy
 
 ## Automated Verification
 
-- `python3 -m pytest -q`: pass
+- `/opt/anaconda3/envs/py311env/bin/python -m pytest -q`: pass
 - `git diff --cached --check`: pass
 
 ## Manual Scenario
