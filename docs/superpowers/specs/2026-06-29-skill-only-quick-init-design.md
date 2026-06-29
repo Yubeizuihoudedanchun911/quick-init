@@ -10,11 +10,11 @@
 
 本仓库只维护基础 Markdown 模板、agent 接入模板、hook 模板和规则包。具体落到目标仓库时，由 coding agent 读取这些模板并结合用户约束生成文件。
 
-## 与 2026-06-26 设计的关系与迁移
+## 与 2026-06-26 设计的关系与清理
 
-本设计取代 `2026-06-26-quick-init-governance-design.md` 的用户入口和实现形态。旧设计中的 TypeScript CLI、npm 安装、`quick-init init`、`quick-init archive --staged`、`quick-init iteration ...` 不再作为产品能力保留。
+本设计取代 `2026-06-26-quick-init-governance-design.md` 的用户入口和实现形态。当前项目处于测试阶段，按无生产用户、无兼容负担处理。旧设计中的 TypeScript CLI、npm 安装、`quick-init init`、`quick-init archive --staged`、`quick-init iteration ...` 不再作为产品能力保留，也不保留 legacy 过渡路径。
 
-实现时需要废弃或删除的旧实现：
+实现时必须删除旧实现：
 
 - `package.json` / `package-lock.json` 中的 npm CLI 发布、构建和测试入口。
 - `cli.ts`、`src/**`、`tests/**`、`vitest.config.ts`、`tsconfig.json` 等 CLI 实现与测试。
@@ -22,11 +22,16 @@
 - README 和 `SKILL.md` 中所有 `quick-init init/archive/iteration` 命令说明。
 - 旧 pre-commit hook 中调用 `quick-init archive --staged` 的 block。
 
-迁移策略：
+旧版 init 产物清理：
 
-- 已经 `npm link` 的用户需要执行 `npm unlink quick-init` 或删除全局 link；新版本不提供兼容命令。
-- 已经使用旧版初始化过的项目，可以重新运行 Skill-only init。新 init 必须保留已有 `.coding-rules/**`、`docs/iterations/**`、`docs/changelog.md`，并只迁移 hook 和 agent 集成。
-- 旧 iteration 目录作为共享事实源保留；本地 `.quick-init/state/**` 可以重建。
+- 旧顶层 `docs/specs/`、`docs/designs/`、`docs/verification/`、`docs/research/` 必须删除，不作为新文档模型保留。
+- 旧 `docs/decisions/_README.md` 必须替换为 `docs/decisions/README.md`。
+- 旧 `docs/iterations/**` 不作为兼容输入保留；测试阶段允许删除并由新 init 重新创建 seed iteration。
+- 旧 `.quick-init/state/**` 必须删除并重建。
+- 旧 `.coding-rules/**` 必须按新模板重建。
+- 已经 `npm link` 的开发者需要手动执行 `npm unlink quick-init` 或删除全局 link；新版本不提供兼容命令。
+
+如果未来进入真实用户阶段，再单独设计 migration；第一版不实现迁移器。
 
 ## Skill 安装与模板访问
 
@@ -93,13 +98,19 @@ templates/
     changelog.md
   agent-integrations/
     codex/
-      hooks.json.md
-      commit-governance.toml.md
-      trigger.py.md
+      README.md
+      hooks.json.tmpl
+      agents/
+        commit-governance.toml.tmpl
+      hooks/
+        trigger.py.tmpl
     claude/
-      settings.json.md
-      commit-governance.md
-      trigger.sh.md
+      README.md
+      settings.json.tmpl
+      agents/
+        commit-governance.md.tmpl
+      hooks/
+        trigger.sh.tmpl
   subagents/
     commit-governance-core.md
   hooks/
@@ -112,6 +123,8 @@ templates/
 
 - Codex：`.codex/agents/commit-governance.toml`
 - Claude：`.claude/agents/commit-governance.md`
+
+adapter 目录中的 `README.md` 说明字段来源、官方文档链接、渲染规则和权限边界。`.tmpl` 文件是最终目标文件模板，不使用 `.md` 后缀伪装 JSON、TOML 或脚本。
 
 ## 目标项目生成结构
 
@@ -177,6 +190,8 @@ docs/iterations/YYYY-MM-DD-<topic>/
 - `plans/`：实现计划、执行计划、验收计划和调试计划。
 
 其它信息进入 `iteration.md` 章节，不再新增 `verification/`、`rules/`、`tooling/` 等子目录。
+
+旧版顶层文档目录不迁移到新模型。测试阶段如果发现旧 `docs/specs/`、`docs/designs/`、`docs/verification/`、`docs/research/`，Skill init 必须删除这些目录，并把新文档入口固定到 `docs/onboard/`、`docs/architecture/`、`docs/decisions/`、`docs/iterations/` 和 `docs/changelog.md`。
 
 ## Specs / Plans 分类规则
 
@@ -265,6 +280,7 @@ Skill init 必须询问用户需要为哪些 coding agent 安装接入。每个 
 - hook schema 或 workflow schema。
 - 自定义子 agent 的注册方式。
 - 不支持自动 hook 时的降级行为。
+- 子 agent 最小权限集。
 
 第一版支持：
 
@@ -296,6 +312,8 @@ Codex adapter 依据官方 Codex 文档维护：
 - Advanced config: `https://developers.openai.com/codex/config-advanced`
 - Subagents: `https://developers.openai.com/codex/subagents`
 
+Codex `commit-governance` agent 权限必须收口到读取、编辑 Markdown/JSON、列文件和执行必要 git 只读/暂存命令。禁止授予网络、依赖安装、业务源码编辑和任意 destructive git 命令权限。
+
 ### Claude
 
 Claude 接入必须写入 Claude Code 的真实项目级目录：
@@ -315,6 +333,8 @@ Claude adapter 依据官方 Claude Code 文档维护：
 
 - Hooks: `https://code.claude.com/docs/en/hooks`
 - Subagents: `https://code.claude.com/docs/en/sub-agents`
+
+Claude `commit-governance` frontmatter 必须声明最小工具集，目标为 `Read`、`Edit`、`Glob`、`Bash`。`Bash` 仅允许 git status/diff/add/ls-files/rev-parse/hash-object 等治理所需命令，不允许测试、构建、依赖安装、推送或 destructive git 命令。
 
 ## Commit Governance 子 Agent
 
@@ -353,6 +373,7 @@ suggested commit message:
 重要边界：
 
 - agent-specific hook 的 shell command 不等于子 agent 本身。
+- trigger script 必须先计算 staged docs hash，并与 `.quick-init/state/last-governance-run.json` 比对；命中时 no-op，避免 `UserPromptSubmit` 和 `PreToolUse` 双触发重复运行。
 - 如果平台提供直接启动 subagent 的 hook API，adapter 可以直接调用。
 - 如果平台只允许执行 shell command，trigger script 只能写入触发状态并向 host agent 返回阻塞/提示信息；host agent 随后必须按 hook 指令启动 `commit-governance` 子 agent。
 - 从用户视角，这是一次自动提交前治理；从实现视角，桥接必须显式写清楚，不能假设 shell command 会自动拥有 subagent 调度能力。
@@ -412,6 +433,7 @@ Git hook 是兜底校验层，不做智能归档。
 安装策略：
 
 - hook 路径必须通过 `git rev-parse --git-path hooks/pre-commit` 获取，兼容 worktree。
+- init 必须识别并清理旧版本 quick-init hook block，尤其是调用 `quick-init archive --staged` 的 block，无论旧 marker 是否与新 marker 相同。
 - 已有 `pre-commit` 时，追加 quick-init 标记 block，不覆盖用户内容。
 - 标记 block 必须包含 start/end marker，重复 init 时只更新 block。
 - 安装失败时回滚本次写入的 hook block 和 `.quick-init/hooks/pre-commit-guard.py`。
@@ -442,6 +464,7 @@ Skill 初始化时逐步询问：
 
 初始化执行：
 
+- 删除旧 CLI、旧模板产物、旧 `.quick-init/state/**` 和旧 quick-init hook block。
 - 读取相关 Markdown 模板。
 - 创建标准目录和规则文件。
 - 安装所选 agent 的真实 hook/config。
@@ -477,6 +500,8 @@ seed 文件用于解决首次提交的鸡生蛋问题。guard 安装前，`docs/
 
 Skill-only 仍然需要可重复验证，不能只靠人工阅读。
 
+测试运行时统一为 Python 3 + pytest，与 guard 保持同一语言；不引入 Node、TypeScript、Vitest 或 npm。快照测试是纯文件 diff：pytest 渲染模板到临时目录，再与 `tests/fixtures/**` 中的 expected 文件比较。
+
 自动化验证：
 
 - 模板快照测试：渲染 `templates/coding-rules/**`、`templates/docs/**`，确认生成路径和关键章节稳定。
@@ -497,8 +522,10 @@ Skill 验证：
 ## 验收标准
 
 - 新用户不需要 npm install 或 npm link。
+- 仓库不再保留旧 CLI、旧 `src/**`、旧 `tests/**`、旧 `dist/**`、旧 package metadata 或 legacy 目录。
 - README 和 `SKILL.md` 不再出现 `quick-init init/archive/iteration` 作为推荐入口。
-- 旧 TypeScript CLI 实现被删除或迁移出产品路径，不再与 Skill-only 入口并存。
+- 旧 TypeScript CLI 实现被删除，不再与 Skill-only 入口并存。
+- 旧顶层 docs 结构 `docs/specs/`、`docs/designs/`、`docs/verification/`、`docs/research/` 不再由新 Skill 生成或保留。
 - Skill 能在空仓库生成标准治理结构。
 - Skill 能在已有仓库合并生成规范文件，不覆盖用户内容。
 - Codex 选择后生成 `.codex/hooks.json` 和 `.codex/agents/commit-governance.toml`。
@@ -512,14 +539,16 @@ Skill 验证：
 
 建议按以下顺序实现：
 
-1. 删除或隔离旧 CLI，重写 README 和 `SKILL.md` 为 Skill-only 入口。
-2. 建立 Markdown 模板目录，包括 coding rules、docs rules、project structure。
-3. 建立 Codex adapter，渲染 `.codex/hooks.json`、`.codex/agents/commit-governance.toml` 和 trigger script。
-4. 建立 Claude adapter，渲染 `.claude/settings.json`、`.claude/agents/commit-governance.md` 和 trigger script。
-5. 实现 Git pre-commit guard 模板和已有 hook 标记 block 更新策略。
-6. 实现 commit-governance 核心说明模板和 specs/plans 分类规则。
-7. 实现 Skill init 流程文档：问题顺序、覆盖策略、seed iteration、初始 commit-governance。
-8. 补齐快照测试、guard 单测、分类规则测试和 Skill 压力场景验收。
+1. 删除旧 CLI、旧 TypeScript/Vitest 测试、旧 package metadata、旧 dist 产物；不保留 legacy 目录。
+2. 重写 README 和 `SKILL.md` 为 Skill-only 入口。
+3. 建立 Python + pytest 测试骨架和 fixture/snapshot 目录。
+4. 建立 Markdown 模板目录，包括 coding rules、docs rules、project structure。
+5. 建立 Codex adapter，渲染 `.codex/hooks.json`、`.codex/agents/commit-governance.toml` 和 trigger script。
+6. 建立 Claude adapter，渲染 `.claude/settings.json`、`.claude/agents/commit-governance.md` 和 trigger script。
+7. 实现 Git pre-commit guard 模板、旧 hook block 清理和已有 hook 标记 block 更新策略。
+8. 实现 commit-governance 核心说明模板、权限收口和 specs/plans 分类规则。
+9. 实现 Skill init 流程文档：问题顺序、旧产物清理、覆盖策略、seed iteration、初始 commit-governance。
+10. 补齐快照测试、guard 单测、分类规则测试、slug 测试和 Skill 压力场景验收。
 
 ## 实现前核准清单
 
