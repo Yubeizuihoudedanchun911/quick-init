@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+from pathlib import Path
+import sys
+
+
+def run_git_command(root: Path, args: list[str]) -> str:
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+
+
+def staged_markdown_files(root: Path) -> list[str]:
+    output = run_git_command(root, ["diff", "--cached", "--name-only"])
+    files = []
+    for line in output.splitlines():
+        if line.endswith(".md"):
+            files.append(line)
+    return files
+
+
+def staged_docs_hash(root: Path, files: list[str]) -> str:
+    digest = hashlib.sha256()
+    for path in files:
+        digest.update(path.encode("utf-8"))
+        try:
+            content = subprocess.check_output(
+                ["git", "-C", str(root), "show", f":{path}"], text=False
+            )
+        except subprocess.CalledProcessError:
+            content = b""
+        digest.update(content)
+    return digest.hexdigest()
+
+
+def last_governance_hash(root: Path) -> str | None:
+    state = root / ".quick-init/state/last-governance-run.json"
+    if not state.exists():
+        return None
+    try:
+        payload = json.loads(state.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    value = payload.get("stagedDocsHash")
+    return value if isinstance(value, str) else None
+
+
+def write_governance_trigger(
+    root: Path,
+    event: str,
+    hash_value: str,
+    staged_files: list[str],
+    tool_input: object,
+) -> None:
+    trigger = root / ".quick-init/state/governance-trigger.json"
+    trigger.parent.mkdir(parents=True, exist_ok=True)
+    trigger.write_text(
+        json.dumps(
+            {
+                "hookEvent": event,
+                "stagedDocsHash": hash_value,
+                "stagedDocs": staged_files,
+                "toolInput": tool_input,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def to_json_stdout(payload: dict[str, object]) -> int:
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
+def main() -> int:
+    try:
+        payload = json.loads(sys.stdin.read())
+    except json.JSONDecodeError:
+        return to_json_stdout({"systemMessage": "quick-init hook payload is not valid JSON."})
+
+    event = payload.get("hook_event_name", "")
+    cwd = payload.get("cwd")
+    root = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
+
+    if event not in {"UserPromptSubmit", "PreToolUse"}:
+        return to_json_stdout(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": str(event),
+                    "additionalContext": "quick-init hook only handles UserPromptSubmit and PreToolUse.",
+                }
+            }
+        )
+
+    try:
+        staged_files = staged_markdown_files(root)
+    except subprocess.CalledProcessError:
+        return to_json_stdout(
+            {
+                "systemMessage": "quick-init hook could not read staged files in git repository.",
+                "hookSpecificOutput": {"hookEventName": str(event)},
+            }
+        )
+
+    if not staged_files:
+        return to_json_stdout(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": event,
+                    "additionalContext": "quick-init governance: no staged markdown files.",
+                }
+            }
+        )
+
+    current_hash = staged_docs_hash(root, staged_files)
+    if current_hash == last_governance_hash(root):
+        return to_json_stdout(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": event,
+                    "additionalContext": "quick-init governance: hash unchanged.",
+                }
+            }
+        )
+
+    write_governance_trigger(
+        root,
+        event,
+        current_hash,
+        staged_files,
+        payload.get("tool_input"),
+    )
+
+    if event == "PreToolUse":
+        return to_json_stdout(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": event,
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "quick-init governance is stale. Run commit-governance subagent first."
+                    ),
+                },
+                "systemMessage": (
+                    "quick-init: please run the commit-governance subagent before continuing."
+                ),
+            }
+        )
+
+    return to_json_stdout(
+        {
+            "decision": "block",
+            "reason": "quick-init governance is stale. Run commit-governance before continuing.",
+            "hookSpecificOutput": {
+                "hookEventName": event,
+                "additionalContext": (
+                    ".quick-init/state/governance-trigger.json was updated with stale hash."
+                ),
+            },
+        }
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

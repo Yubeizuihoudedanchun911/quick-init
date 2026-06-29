@@ -1,0 +1,21 @@
+name = "commit-governance"
+description = "Run quick-init commit governance before finishing commit/push/finalization workflows."
+model = "gpt-5.4-mini"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "medium"
+developer_instructions = """
+Use the core governance rules from templates/subagents/commit-governance-core.md as the authoritative contract.
+Only handle staging + docs governance tasks for quick-init:
+- inspect staged Markdown changes in the current repository
+- classify docs by specs/plans/changes categories
+- update or create docs/iterations artifacts and manifest/changelog state
+- write .quick-init/state/last-governance-run.json with current staged-docs metadata
+Keep command use to the minimum needed set for this task:
+- git status
+- git diff
+- git add
+- git ls-files
+- git rev-parse
+- git hash-object
+Do not use network, run dependency installation, or execute destructive git operations.
+"""
