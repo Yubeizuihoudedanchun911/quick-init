@@ -68,6 +68,19 @@ def is_submission_related_prompt(prompt_text: str) -> bool:
         or "push" in lowered
     ):
         return False
+    if re.search(r"\bwhat\s+does\b.*\b(?:git\s+)?(?:commit|push)\b.*\bdo\b", lowered) and (
+        "commit" in lowered or "push" in lowered
+    ):
+        return False
+    if re.search(r"\bhow\s+does\b.*\b(?:git\s+)?(?:commit|push)\b.*\bwork\b", lowered) and (
+        "commit" in lowered or "push" in lowered
+    ):
+        return False
+    if re.search(
+        r"\b(?:please\s+)?\bexplain\b.*\b(?:git\s+)?(?:commit|push)\b",
+        lowered,
+    ):
+        return False
     if re.search(r"\b(?:do not|don't|not|never)\b.*\b(?:submit|commit|push|publish)\b", lowered):
         return False
     if re.search(r"\bwhat\b.*\b(?:is|are)\b.*\bdifference\b", lowered) and (
@@ -78,12 +91,15 @@ def is_submission_related_prompt(prompt_text: str) -> bool:
     action_patterns = [
         r"\b提交(?:这些?|这次|当前|我的|全部|所有|部分)?(?:改动|变更|内容|文件)?",
         r"\b(?:请|帮我|请帮我)\s*提交(?:这些?|这次)?(?:改动|变更|文件)?",
+        r"\b提交这些改动\b",
+        r"\b推送这个分支\b",
         r"\b发布(?:这个|该)?分支\b",
+        r"\bpush\s+this\s+branch\b",
+        r"\bcommit\s+these\s+changes\b",
         r"\bprepare\s+commit\b",
+        r"\bgit\s+commit\s+and\s+push\b",
         r"\bgit\s+commit\b(?:\s+(?:and\s+push|-[A-Za-z0-9_-]+|\s+[^\s]+))*",
         r"\bgit\s+push\b(?:\s+[-\\/]?[A-Za-z0-9_./-]+|\s+\S+)?",
-        r"\bcommit\b",
-        r"\bpush\b",
         r"\bpublish\b",
         r"\bfinal(?:ize|ise|ized|izing)\s+iteration\b",
         r"\bend\s+iteration\b",

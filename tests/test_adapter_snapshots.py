@@ -183,6 +183,10 @@ def test_codex_trigger_user_prompt_submit_noop_for_non_submission_intent(tmp_pat
 @pytest.mark.parametrize(
     "prompt_text",
     [
+        "what does git push do?",
+        "explain git push",
+        "how does git commit work?",
+        "please explain commit message conventions",
         "请解释 git commit 和 git push 的区别，不要提交任何东西",
         "what is the difference between git commit and git push?",
     ],
@@ -230,10 +234,12 @@ def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) 
 @pytest.mark.parametrize(
     "prompt_text",
     [
+        "commit these changes",
         "提交这些改动",
         "git commit and push",
         "prepare commit",
         "发布这个分支",
+        "push this branch",
     ],
 )
 def test_codex_trigger_user_prompt_submit_blocks_stale_markdown_for_action_prompt(
