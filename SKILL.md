@@ -1,42 +1,44 @@
 ---
 name: quick-init
-description: Initialize full vibecoding governance for a project from a natural-language description, including AI coding instructions, shared rules, docs, local archive state, hooks, and scoped initialization commit.
+description: Use when initializing project governance structure, coding rules, documentation conventions, iteration archives, changelog flow, or Codex/Claude commit-governance hooks for a repository
 ---
 
 # quick-init
 
-Use this skill when a user wants to initialize or maintain quick-init project governance.
+## Overview
 
-## Initialize
+Initialize a target repository with project governance structure and agent-native workflow rules. This Skill creates directories and Markdown governance files only; it does not create business code or language package configuration.
 
-Run:
+## Required Flow
 
-```bash
-quick-init init "<business description>"
-```
+1. Confirm the target repository root.
+2. Ask for project name and one-sentence project goal.
+3. Ask for primary language: `python`, `java`, `typescript`, or `generic`.
+4. Ask whether to install Codex integration, Claude integration, or both.
+5. Ask for the first iteration name, defaulting to `初始化项目治理`.
+6. Read templates from this Skill root under `templates/**`.
+7. Remove old quick-init prototype artifacts when present.
+8. Create the governance structure and seed iteration.
+9. Install selected agent integration files.
+10. Install the Git pre-commit guard.
+11. Run or request the selected agent's `commit-governance` workflow once.
 
-The initializer derives a full-governance spec, writes AI tool entry files and `.coding-rules/`, creates project docs, configures local `.quick-init/` state, installs the pre-commit archive hook, creates the first iteration under `docs/iterations/`, and commits only quick-init-generated files.
+## Generated Docs Model
 
-The default subagent policy is intentionally narrow: generate `agents/documentation.md` as the only documentation subagent, and do not create unrelated default subagents.
+Only generate these top-level docs:
 
-## Archive
+- `docs/onboard/README.md`
+- `docs/architecture/README.md`
+- `docs/decisions/README.md`
+- `docs/iterations/README.md`
+- `docs/changelog.md`
 
-Run:
+Do not generate top-level `docs/specs/`, `docs/designs/`, `docs/verification/`, or `docs/research/`.
 
-```bash
-quick-init archive --staged
-```
+## Safety Rules
 
-This command classifies staged Markdown, moves archiveable documents into `docs/iterations/`, writes `manifest.json` and `iteration.md`, and stages the archive result. If AI summary generation is unavailable, it degrades to a manifest-only archive instead of blocking the commit.
-
-## Iteration
-
-Run:
-
-```bash
-quick-init iteration status
-quick-init iteration start "<name>"
-quick-init iteration close
-```
-
-`iteration start` creates a local active iteration state in `.quick-init/state/active-iteration.json` with a dated slug and `docs/iterations/<iteration>` path. `iteration status` reports the active iteration when present, or `No active iteration` when none is open. `iteration close` marks the active iteration manifest as `closed` when it exists, then clears the local active iteration state.
+- Do not overwrite existing user content without showing a merge summary.
+- Delete old quick-init CLI prototype files when this repository itself is being migrated.
+- Use Codex `.codex/hooks.json` for Codex hooks.
+- Use Claude `.claude/settings.json` for Claude hooks.
+- Keep `.quick-init/` local and ignored.
