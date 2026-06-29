@@ -4,8 +4,10 @@
 
 - `rtk /opt/anaconda3/envs/py311env/bin/python -m pytest -q`
   - 结果：pass
+- `rtk git diff --cached --check`
+  - 结果：pass
 - `rtk rg -n "quick-init init|quick-init archive|quick-init iteration|npm link|npm install|vitest|tsconfig|package.json" README.md SKILL.md templates tests docs/superpowers/specs/2026-06-29-skill-only-quick-init-design.md`
-  - 命中分布：主要在 `docs/superpowers/specs/2026-06-29-skill-only-quick-init-design.md`（历史清理说明）与 `tests/test_repository_cleanup.py`、`tests/test_skill_flow.py`（回归防护），均为预期意图；
+  - 命中分布：`docs/superpowers/specs/2026-06-29-skill-only-quick-init-design.md`（历史清理说明）、`tests/test_repository_cleanup.py`/`tests/test_skill_flow.py`/`tests/test_guard_script.py`（回归防护）、`templates/hooks/git-pre-commit-guard.py.tmpl`（旧 hook marker `quick-init archive --staged`，用于 init 清理旧 block），均为预期意图；
   - 当前 README/SKILL 中未再出现 `quick-init init/archive/iteration`、`npm link`、`npm install` 等旧 CLI 入口字符串。
 - `rtk git status --short --branch`
   - 结果：工作树仅有未跟踪的 `.serena/`（非本任务范围），未见异常变更。
@@ -19,4 +21,4 @@
 
 ## 结果
 
-已完成自动与手工验证，且未发现旧 CLI、Node/Vitest 或旧 docs 顶层目录遗留；本记录文件已按 task 9 要求生成。
+基于上述自动与手工验证，未发现旧 CLI、Node/Vitest 或旧 docs 顶层目录遗留。
