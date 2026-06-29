@@ -73,7 +73,13 @@ Category matching:
 
 - Iteration dir: `docs/iterations/YYYY-MM-DD-topic-slug/`.
 - Include `iteration.md`, `manifest.json`, `specs/`, and `plans/`.
-- Slug rules: keep Chinese/English letters/numbers, hyphens/underscores, limit 80 chars, and suffix `-2/-3...` when conflicting.
+- Slug rules:
+  - Keep Chinese/English letters, numbers, hyphens, and underscores.
+  - Compress whitespace into a single `-`.
+  - Remove path separators, control characters, and shell-special characters.
+  - Use `iteration` when empty.
+  - Limit to 80 Unicode characters.
+  - Append `-2`, `-3`, and higher suffixes on path conflict.
 
 ## Iteration manifest
 

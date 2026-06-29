@@ -43,6 +43,11 @@ def test_claude_agent_template_matches_snapshot() -> None:
     assert "changelogsynced" in rendered.lower() or "changelog sync" in rendered.lower()
     assert "iteration shape" in rendered.lower()
     assert "last-governance-run" in rendered
+    assert "compress whitespace into a single `-`" in rendered.lower()
+    assert (
+        "remove path separators, control characters, and shell-special" in rendered.lower()
+    )
+    assert "if the slug becomes empty, use `iteration`" in rendered.lower() or "use `iteration` when empty" in rendered.lower()
     assert (
         "templates/subagents/commit-governance-core.md"
         not in rendered
