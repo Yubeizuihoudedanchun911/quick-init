@@ -63,20 +63,18 @@ def write_state(
     *,
     active_iteration: str,
     hash_value: str,
+    include_active_iteration: bool = True,
     include_iteration: bool = True,
     include_changelog: bool = True,
     stage_required: bool = True,
 ) -> None:
     state_file = repo_root / ".quick-init/state/last-governance-run.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_payload = {"stagedDocsHash": hash_value}
+    if include_active_iteration:
+        state_payload["activeIteration"] = active_iteration
     state_file.write_text(
-        json.dumps(
-            {
-                "activeIteration": active_iteration,
-                "stagedDocsHash": hash_value,
-            },
-            ensure_ascii=False,
-        ),
+        json.dumps(state_payload, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -249,6 +247,7 @@ def test_guard_script_blocks_when_required_changelog_is_staged_deleted(tmp_path:
     completed = run_guard_script(repo_root, script_path)
     assert completed.returncode == 1
     assert "quick-init: missing docs/changelog.md" in completed.stderr
+    assert "fatal:" not in completed.stderr
 
 
 def test_guard_script_returns_zero_when_no_staged_markdown(tmp_path: Path) -> None:
@@ -269,14 +268,16 @@ def test_guard_script_blocks_when_active_iteration_missing(tmp_path: Path) -> No
     )
     write_state(
         repo_root,
-        active_iteration="",
+        active_iteration="2026-06-29-sample-iteration",
         hash_value="placeholder",
+        include_active_iteration=False,
     )
     staged_files = staged_markdown_files(repo_root)
     write_state(
         repo_root,
-        active_iteration="",
+        active_iteration="2026-06-29-sample-iteration",
         hash_value=staged_markdown_hash(repo_root, staged_files),
+        include_active_iteration=False,
         stage_required=False,
     )
 

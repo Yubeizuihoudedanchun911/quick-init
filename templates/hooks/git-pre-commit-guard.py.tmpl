@@ -30,7 +30,12 @@ def staged_docs_hash(root: Path, files: list[str]) -> str:
     for path in files:
         digest.update(path.encode("utf-8"))
         try:
-            digest.update(subprocess.check_output(["git", "-C", str(root), "show", f":{path}"]))
+            digest.update(
+                subprocess.check_output(
+                    ["git", "-C", str(root), "show", f":{path}"],
+                    stderr=subprocess.DEVNULL,
+                )
+            )
         except subprocess.CalledProcessError:
             digest.update(b"")
     return digest.hexdigest()
@@ -38,7 +43,13 @@ def staged_docs_hash(root: Path, files: list[str]) -> str:
 
 def has_indexed_file(root: Path, path: Path) -> bool:
     relative = path.relative_to(root).as_posix()
-    return subprocess.call(["git", "-C", str(root), "cat-file", "-e", f":{relative}"]) == 0
+    return (
+        subprocess.call(
+            ["git", "-C", str(root), "cat-file", "-e", f":{relative}"],
+            stderr=subprocess.DEVNULL,
+        )
+        == 0
+    )
 
 
 def load_state(path: Path) -> dict | None:
