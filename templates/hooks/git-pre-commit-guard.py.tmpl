@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+# Keep this marker so init can detect and clean historical quick-init hook blocks.
+OLD_COMMAND = "quick-init archive --staged"
+
+
+def git(args: list[str]) -> str:
+    return subprocess.check_output(["git", *args], text=True).strip()
+
+
+def staged_markdown_files() -> list[str]:
+    output = git(["diff", "--cached", "--name-only"])
+    return [line for line in output.splitlines() if line.endswith(".md")]
+
+
+def staged_docs_hash(files: list[str]) -> str:
+    digest = hashlib.sha256()
+    for path in files:
+        digest.update(path.encode("utf-8"))
+        try:
+            digest.update(subprocess.check_output(["git", "show", f":{path}"]))
+        except subprocess.CalledProcessError:
+            digest.update(b"")
+    return digest.hexdigest()
+
+
+def load_json(path: Path) -> dict:
+    if not path.exists():
+        raise RuntimeError(f"missing required state file: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def main() -> int:
+    root = Path(git(["rev-parse", "--show-toplevel"]))
+    files = staged_markdown_files()
+    if not files:
+        return 0
+
+    state = load_json(root / ".quick-init/state/last-governance-run.json")
+    current_hash = staged_docs_hash(files)
+    if state.get("stagedDocsHash") != current_hash:
+        print("quick-init: commit-governance state is stale", file=sys.stderr)
+        return 1
+
+    active_iteration = state.get("activeIteration")
+    if not active_iteration:
+        print("quick-init: missing activeIteration in governance state", file=sys.stderr)
+        return 1
+
+    iteration_dir = root / "docs/iterations" / str(active_iteration)
+    for required in ["iteration.md", "manifest.json"]:
+        path = iteration_dir / required
+        if not path.exists():
+            print(f"quick-init: missing {path}", file=sys.stderr)
+            return 1
+
+    changelog = root / "docs/changelog.md"
+    if not changelog.exists():
+        print("quick-init: missing docs/changelog.md", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
