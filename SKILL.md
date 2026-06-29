@@ -14,16 +14,17 @@ Initialize a target repository with project governance structure and agent-nativ
 1. Confirm the target repository root.
 2. Ask for project name.
 3. Ask for one-sentence project goal.
-4. Ask for primary language: `python`, `java`, `typescript`, or `generic`.
-5. Ask whether to install Codex, Claude, or both.
-6. Ask for first iteration name.
-7. Create the seed iteration before installing the Git pre-commit guard.
-8. Read templates from this Skill root under `templates/**`.
-9. Remove old quick-init prototype artifacts when present.
-10. Create the governance structure and seed iteration (for the chosen first iteration name).
-11. Install selected agent integration files.
-12. Install the Git pre-commit guard.
-13. Run or request the selected agent's `commit-governance` workflow once.
+4. Ask for primary language.
+5. Supported options: `python`, `java`, `typescript`, or `generic`.
+6. Ask whether to install Codex, Claude, or both.
+7. Ask for first iteration name.
+8. Create the seed iteration before installing the Git pre-commit guard.
+9. Read templates from this Skill root under `templates/**`.
+10. Remove old quick-init prototype artifacts when present.
+11. Create the governance structure.
+12. Install selected agent integration files.
+13. Install the Git pre-commit guard.
+14. Run or request the selected agent's `commit-governance` workflow once.
 
 ## Generated Docs Model
 
