@@ -28,6 +28,50 @@ def test_codex_agent_template_matches_snapshot() -> None:
     )
 
 
+def test_claude_settings_template_matches_snapshot() -> None:
+    rendered = read_text("templates/agent-integrations/claude/settings.json.tmpl")
+    expected = read_text("tests/fixtures/snapshots/claude/settings.json")
+    assert json.loads(rendered) == json.loads(expected)
+
+
+def test_claude_agent_template_matches_snapshot() -> None:
+    rendered = read_text("templates/agent-integrations/claude/agents/commit-governance.md.tmpl")
+    expected = read_text("tests/fixtures/snapshots/claude/agents/commit-governance.md")
+    assert rendered == expected
+    assert "classification rules" in rendered.lower()
+    assert "changelogsynced" in rendered.lower() or "changelog sync" in rendered.lower()
+    assert "iteration shape" in rendered.lower()
+    assert "last-governance-run" in rendered
+    assert (
+        "templates/subagents/commit-governance-core.md"
+        not in rendered
+    )
+
+
+def test_claude_settings_match_event_contract() -> None:
+    rendered = json.loads(
+        read_text("templates/agent-integrations/claude/settings.json.tmpl")
+    )
+    user_prompt = rendered["hooks"]["UserPromptSubmit"][0]
+    pre_tool_use = rendered["hooks"]["PreToolUse"][0]
+
+    assert "hooks" in user_prompt
+    assert "hooks" in pre_tool_use
+    assert "matcher" not in user_prompt
+    assert pre_tool_use["matcher"] == "Bash"
+    assert pre_tool_use["hooks"][0]["type"] == "command"
+    assert (
+        "${CLAUDE_PROJECT_DIR}" in pre_tool_use["hooks"][0]["command"]
+        or "${CLAUDE_PROJECT_DIR:-" in pre_tool_use["hooks"][0]["command"]
+    )
+
+
+def test_claude_trigger_template_uses_project_root_resolver() -> None:
+    trigger = read_text("templates/agent-integrations/claude/hooks/trigger.sh.tmpl")
+    assert "${CLAUDE_PROJECT_DIR}" in trigger or "${CLAUDE_PROJECT_DIR:-" in trigger
+    assert ".quick-init/hooks/agent-trigger.py" in trigger
+
+
 def run_trigger_trigger(
     script_path: Path, payload: dict[str, str], cwd: Path
 ) -> dict[str, object]:
