@@ -42,10 +42,12 @@ GEMINI.md
 
 `quick-init` creates governance files and directories only. It does not create package files, runtime configuration, business source code, or test examples for the target project.
 
-## Development
+## Development Checks
 
 Repository validation uses Python 3 and pytest.
 
 ```bash
 /opt/anaconda3/envs/py311env/bin/python -m pytest
 ```
+
+Implementation work must keep the repository free of Node, npm, TypeScript, Vitest, old CLI entrypoints, and old generated docs directories.
