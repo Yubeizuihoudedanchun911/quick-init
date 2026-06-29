@@ -1,3 +1,10 @@
 .superpowers/
 .worktrees/
 .quick-init/
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+.weaver/
+dist/
+node_modules/
