@@ -100,13 +100,9 @@ def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
                 "import sys",
                 "payload_text = sys.stdin.read()",
                 "payload = json.loads(payload_text)",
-                "payload_argv = payload.get(\"argv\", [])",
-                "argv = list(sys.argv[1:])",
-                "if isinstance(payload_argv, list):",
-                "    argv.extend([str(item) for item in payload_argv if isinstance(item, str)])",
                 "print(json.dumps({",
                 '    "script": os.path.basename(__file__),',
-                '    "argv": argv,',
+                '    "argv": sys.argv[1:],',
                 '    "stdin": payload_text,',
                 "}))",
             ]
@@ -116,7 +112,6 @@ def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
 
     payload = {
         "hook_event_name": "UserPromptSubmit",
-        "argv": ["user-prompt-submit"],
         "cwd": str(repo_root),
         "prompt": "请提交这次变更",
     }
@@ -134,7 +129,7 @@ def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
     assert completed.returncode == 0
     output = json.loads(completed.stdout)
     assert output["script"] == "agent-trigger.py"
-    assert "user-prompt-submit" in output["argv"]
+    assert output["argv"] == ["user-prompt-submit"]
     assert output["stdin"] == payload_json
 
 
