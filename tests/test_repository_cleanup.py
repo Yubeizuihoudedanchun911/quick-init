@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from conftest import REPO_ROOT, assert_not_contains, read_text
 
 

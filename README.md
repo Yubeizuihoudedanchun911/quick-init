@@ -47,5 +47,5 @@ GEMINI.md
 Repository validation uses Python 3 and pytest.
 
 ```bash
-python3 -m pytest
+/opt/anaconda3/envs/py311env/bin/python -m pytest
 ```
