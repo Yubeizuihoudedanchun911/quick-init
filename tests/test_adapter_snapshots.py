@@ -4,6 +4,7 @@ import subprocess
 import json
 import sys
 from pathlib import Path
+import pytest
 
 from conftest import read_text
 
@@ -18,6 +19,14 @@ def test_codex_agent_template_matches_snapshot() -> None:
     rendered = read_text("templates/agent-integrations/codex/agents/commit-governance.toml.tmpl")
     expected = read_text("tests/fixtures/snapshots/codex/agents/commit-governance.toml")
     assert rendered == expected
+    assert "Classification rules" in rendered
+    assert "Changelog sync" in rendered
+    assert "Iteration manifest" in rendered
+    assert "last-governance-run" in rendered
+    assert (
+        "templates/subagents/commit-governance-core.md as the authoritative contract"
+        not in rendered
+    )
 
 
 def run_trigger_trigger(
@@ -69,7 +78,16 @@ def test_codex_trigger_writes_state_to_repo_root_for_subdir(tmp_path: Path) -> N
     assert not subdir_state_file.exists()
 
 
-def test_codex_trigger_pre_tool_use_ls_noop(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "tool_command",
+    [
+        "ls",
+        "pytest",
+        "git status",
+        "git diff",
+    ],
+)
+def test_codex_trigger_pre_tool_use_noop(tmp_path: Path, tool_command: str) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     subprocess.run(["git", "-C", str(repo_root), "init"], check=True)
@@ -87,11 +105,11 @@ def test_codex_trigger_pre_tool_use_ls_noop(tmp_path: Path) -> None:
         {
             "hook_event_name": "PreToolUse",
             "cwd": str(repo_root),
-            "tool_input": {"command": "ls"},
+            "tool_input": {"command": tool_command},
         },
         cwd=repo_root,
     )
 
     assert output["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
-    assert "permissionDecision" not in output
+    assert output["hookSpecificOutput"].get("permissionDecision") is None
     assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
