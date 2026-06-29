@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-import subprocess
 import json
+import subprocess
 import sys
 from pathlib import Path
 import pytest
@@ -42,6 +40,24 @@ def run_trigger_trigger(
     )
     assert completed.returncode == 0
     return json.loads(completed.stdout)
+
+
+def init_repo_with_staged_markdown(
+    tmp_path: Path, *, doc_name: str = "notes.md", doc_text: str = "# notes"
+) -> tuple[Path, Path]:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    subprocess.run(["git", "-C", str(repo_root), "init"], check=True)
+    doc_file = repo_root / doc_name
+    doc_file.write_text(doc_text, encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_root), "add", doc_name], check=True)
+
+    trigger = tmp_path / "trigger.py"
+    trigger.write_text(
+        read_text("templates/agent-integrations/codex/hooks/trigger.py.tmpl"),
+        encoding="utf-8",
+    )
+    return repo_root, trigger
 
 
 def test_codex_trigger_writes_state_to_repo_root_for_subdir(tmp_path: Path) -> None:
@@ -88,18 +104,7 @@ def test_codex_trigger_writes_state_to_repo_root_for_subdir(tmp_path: Path) -> N
     ],
 )
 def test_codex_trigger_pre_tool_use_noop(tmp_path: Path, tool_command: str) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    subprocess.run(["git", "-C", str(repo_root), "init"], check=True)
-    doc_file = repo_root / "notes.md"
-    doc_file.write_text("# notes", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo_root), "add", "notes.md"], check=True)
-
-    trigger = tmp_path / "trigger.py"
-    trigger.write_text(
-        read_text("templates/agent-integrations/codex/hooks/trigger.py.tmpl"),
-        encoding="utf-8",
-    )
+    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
     output = run_trigger_trigger(
         trigger,
         {
@@ -113,3 +118,45 @@ def test_codex_trigger_pre_tool_use_noop(tmp_path: Path, tool_command: str) -> N
     assert output["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
     assert output["hookSpecificOutput"].get("permissionDecision") is None
     assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
+
+
+def test_codex_trigger_pre_tool_use_deny_when_marked_for_commit(tmp_path: Path) -> None:
+    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
+    output = run_trigger_trigger(
+        trigger,
+        {
+            "hook_event_name": "PreToolUse",
+            "cwd": str(repo_root),
+            "tool_input": {"command": "git commit -m x"},
+        },
+        cwd=repo_root,
+    )
+
+    assert output["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    decision_reason = output["hookSpecificOutput"].get("permissionDecisionReason")
+    assert isinstance(decision_reason, str) and decision_reason.strip()
+
+
+def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) -> None:
+    repo_root, trigger = init_repo_with_staged_markdown(
+        tmp_path, doc_name="nested-doc.md", doc_text="# stale notes"
+    )
+    state_file = repo_root / ".quick-init/state/last-governance-run.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps({"stagedDocsHash": "stale-hash"}, ensure_ascii=False), encoding="utf-8"
+    )
+
+    output = run_trigger_trigger(
+        trigger,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": str(repo_root),
+        },
+        cwd=repo_root,
+    )
+
+    assert output["decision"] == "block"
+    reason = output.get("reason")
+    assert isinstance(reason, str) and reason.strip()
