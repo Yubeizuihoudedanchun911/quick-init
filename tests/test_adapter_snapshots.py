@@ -1,4 +1,5 @@
 import json
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,20 @@ def init_repo_with_staged_markdown(
     return repo_root, trigger
 
 
+def compute_staged_markdown_hash(repo_root: Path, staged_files: list[str]) -> str:
+    digest = hashlib.sha256()
+    for path in staged_files:
+        digest.update(path.encode("utf-8"))
+        try:
+            content = subprocess.check_output(
+                ["git", "-C", str(repo_root), "show", f":{path}"], text=False
+            )
+        except subprocess.CalledProcessError:
+            content = b""
+        digest.update(content)
+    return digest.hexdigest()
+
+
 def test_codex_trigger_writes_state_to_repo_root_for_subdir(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     subdir = repo_root / "nested"
@@ -83,6 +98,7 @@ def test_codex_trigger_writes_state_to_repo_root_for_subdir(tmp_path: Path) -> N
         {
             "hook_event_name": "UserPromptSubmit",
             "cwd": str(subdir),
+            "input": "run commit-governance now",
         },
         cwd=repo_root,
     )
@@ -138,6 +154,23 @@ def test_codex_trigger_pre_tool_use_deny_when_marked_for_commit(tmp_path: Path) 
     assert isinstance(decision_reason, str) and decision_reason.strip()
 
 
+def test_codex_trigger_user_prompt_submit_noop_for_non_submission_intent(tmp_path: Path) -> None:
+    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
+    output = run_trigger_trigger(
+        trigger,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": str(repo_root),
+            "prompt": "请解释一下这个仓库结构",
+        },
+        cwd=repo_root,
+    )
+
+    assert output["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "decision" not in output
+    assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
+
+
 def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) -> None:
     repo_root, trigger = init_repo_with_staged_markdown(
         tmp_path, doc_name="nested-doc.md", doc_text="# stale notes"
@@ -153,6 +186,7 @@ def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) 
         {
             "hook_event_name": "UserPromptSubmit",
             "cwd": str(repo_root),
+            "message": "请帮我提交这次变更并推送",
         },
         cwd=repo_root,
     )
@@ -160,3 +194,34 @@ def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) 
     assert output["decision"] == "block"
     reason = output.get("reason")
     assert isinstance(reason, str) and reason.strip()
+
+
+def test_codex_trigger_user_prompt_submit_noop_when_hash_unchanged(tmp_path: Path) -> None:
+    repo_root, trigger = init_repo_with_staged_markdown(
+        tmp_path, doc_name="nested-doc.md", doc_text="# same notes"
+    )
+    staged_files_output = subprocess.check_output(
+        ["git", "-C", str(repo_root), "diff", "--cached", "--name-only"],
+        text=True,
+    ).splitlines()
+    staged_files = [path for path in staged_files_output if path.endswith(".md")]
+    current_hash = compute_staged_markdown_hash(repo_root, staged_files)
+
+    state_file = repo_root / ".quick-init/state/last-governance-run.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps({"stagedDocsHash": current_hash}, ensure_ascii=False), encoding="utf-8"
+    )
+
+    output = run_trigger_trigger(
+        trigger,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": str(repo_root),
+            "input": "git commit",
+        },
+        cwd=repo_root,
+    )
+
+    assert "decision" not in output
+    assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
