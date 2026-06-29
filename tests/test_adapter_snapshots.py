@@ -1,5 +1,6 @@
 import json
 import hashlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,10 @@ def test_claude_settings_match_event_contract() -> None:
     assert "matcher" not in user_prompt
     assert pre_tool_use["matcher"] == "Bash"
     assert pre_tool_use["hooks"][0]["type"] == "command"
+    assert rendered["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].startswith("bash")
+    assert rendered["hooks"]["PreToolUse"][0]["hooks"][0]["command"].startswith("bash")
+    assert "user-prompt-submit" in rendered["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    assert "pre-tool-use" in rendered["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert (
         "${CLAUDE_PROJECT_DIR}" in pre_tool_use["hooks"][0]["command"]
         or "${CLAUDE_PROJECT_DIR:-" in pre_tool_use["hooks"][0]["command"]
@@ -70,6 +75,67 @@ def test_claude_trigger_template_uses_project_root_resolver() -> None:
     trigger = read_text("templates/agent-integrations/claude/hooks/trigger.sh.tmpl")
     assert "${CLAUDE_PROJECT_DIR}" in trigger or "${CLAUDE_PROJECT_DIR:-" in trigger
     assert ".quick-init/hooks/agent-trigger.py" in trigger
+
+
+def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    subprocess.run(["git", "-C", str(repo_root), "init"], check=True)
+
+    hook_dir = repo_root / ".claude" / "hooks"
+    trigger_path = hook_dir / "commit-governance-trigger.sh"
+    hook_dir.mkdir(parents=True, exist_ok=True)
+    trigger_path.write_text(
+        read_text("templates/agent-integrations/claude/hooks/trigger.sh.tmpl"),
+        encoding="utf-8",
+    )
+
+    quick_init_hook_dir = repo_root / ".quick-init" / "hooks"
+    quick_init_hook_dir.mkdir(parents=True, exist_ok=True)
+    (quick_init_hook_dir / "agent-trigger.py").write_text(
+        '\n'.join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "payload_text = sys.stdin.read()",
+                "payload = json.loads(payload_text)",
+                "payload_argv = payload.get(\"argv\", [])",
+                "argv = list(sys.argv[1:])",
+                "if isinstance(payload_argv, list):",
+                "    argv.extend([str(item) for item in payload_argv if isinstance(item, str)])",
+                "print(json.dumps({",
+                '    "script": os.path.basename(__file__),',
+                '    "argv": argv,',
+                '    "stdin": payload_text,',
+                "}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "argv": ["user-prompt-submit"],
+        "cwd": str(repo_root),
+        "prompt": "请提交这次变更",
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    completed = subprocess.run(
+        ["bash", str(trigger_path), "user-prompt-submit"],
+        input=payload_json,
+        env={**os.environ, "CLAUDE_PROJECT_DIR": str(repo_root)},
+        text=True,
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+    )
+
+    assert completed.returncode == 0
+    output = json.loads(completed.stdout)
+    assert output["script"] == "agent-trigger.py"
+    assert "user-prompt-submit" in output["argv"]
+    assert output["stdin"] == payload_json
 
 
 def run_trigger_trigger(
