@@ -12,40 +12,59 @@ from pathlib import Path
 OLD_COMMAND = "quick-init archive --staged"
 
 
-def git(args: list[str]) -> str:
-    return subprocess.check_output(["git", *args], text=True).strip()
+def git(args: list[str], cwd: Path | None = None) -> str:
+    return subprocess.check_output(
+        ["git", *args],
+        cwd=str(cwd) if cwd else None,
+        text=True,
+    ).strip()
 
 
-def staged_markdown_files() -> list[str]:
-    output = git(["diff", "--cached", "--name-only"])
+def staged_markdown_files(root: Path) -> list[str]:
+    output = git(["diff", "--cached", "--name-only"], cwd=root)
     return [line for line in output.splitlines() if line.endswith(".md")]
 
 
-def staged_docs_hash(files: list[str]) -> str:
+def staged_docs_hash(root: Path, files: list[str]) -> str:
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.encode("utf-8"))
         try:
-            digest.update(subprocess.check_output(["git", "show", f":{path}"]))
+            digest.update(subprocess.check_output(["git", "-C", str(root), "show", f":{path}"]))
         except subprocess.CalledProcessError:
             digest.update(b"")
     return digest.hexdigest()
 
 
-def load_json(path: Path) -> dict:
-    if not path.exists():
-        raise RuntimeError(f"missing required state file: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+def has_indexed_file(root: Path, path: Path) -> bool:
+    relative = path.relative_to(root).as_posix()
+    return subprocess.call(["git", "-C", str(root), "cat-file", "-e", f":{relative}"]) == 0
+
+
+def load_state(path: Path) -> dict | None:
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        print("quick-init: invalid last-governance-run.json", file=sys.stderr)
+        return None
+
+    if not isinstance(state, dict):
+        print("quick-init: invalid last-governance-run.json", file=sys.stderr)
+        return None
+
+    return state
 
 
 def main() -> int:
     root = Path(git(["rev-parse", "--show-toplevel"]))
-    files = staged_markdown_files()
+    files = staged_markdown_files(root)
     if not files:
         return 0
 
-    state = load_json(root / ".quick-init/state/last-governance-run.json")
-    current_hash = staged_docs_hash(files)
+    state = load_state(root / ".quick-init/state/last-governance-run.json")
+    if state is None:
+        return 1
+    current_hash = staged_docs_hash(root, files)
     if state.get("stagedDocsHash") != current_hash:
         print("quick-init: commit-governance state is stale", file=sys.stderr)
         return 1
@@ -58,12 +77,13 @@ def main() -> int:
     iteration_dir = root / "docs/iterations" / str(active_iteration)
     for required in ["iteration.md", "manifest.json"]:
         path = iteration_dir / required
-        if not path.exists():
-            print(f"quick-init: missing {path}", file=sys.stderr)
+        if not has_indexed_file(root, path):
+            relative = path.relative_to(root).as_posix()
+            print(f"quick-init: missing {relative}", file=sys.stderr)
             return 1
 
     changelog = root / "docs/changelog.md"
-    if not changelog.exists():
+    if not has_indexed_file(root, changelog):
         print("quick-init: missing docs/changelog.md", file=sys.stderr)
         return 1
 
