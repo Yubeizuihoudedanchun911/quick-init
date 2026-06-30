@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json as _json
-
 from conftest import REPO_ROOT, read_text
 
 
@@ -137,23 +135,19 @@ def test_agent_instructions_have_shared_and_unique_content() -> None:
     assert "no hook integration" in gemini_text.lower() or "manual" in gemini_text.lower()
 
 
-def test_governance_trigger_core_template_exists() -> None:
-    path = REPO_ROOT / "templates/hooks/governance-trigger-core.py.tmpl"
-    assert path.exists()
-    text = path.read_text(encoding="utf-8")
-    assert "def process_event(" in text
-    assert "def staged_docs_hash(" in text
-    assert "def is_submission_intent(" in text
-    assert "def load_intent_keywords(" in text
+def test_obsolete_hook_templates_removed() -> None:
+    for path in [
+        "templates/hooks/governance-trigger-core.py.tmpl",
+        "templates/hooks/finalize-governance.py.tmpl",
+        "templates/hooks/intent-keywords.json",
+        "templates/hooks/git-pre-commit-guard.py.tmpl",
+    ]:
+        assert not (REPO_ROOT / path).exists(), f"{path} must be deleted"
 
 
-def test_intent_keywords_json_is_valid() -> None:
-    path = REPO_ROOT / "templates/hooks/intent-keywords.json"
-    assert path.exists()
-    data = _json.loads(path.read_text(encoding="utf-8"))
-    assert "strong_signals" in data
-    assert "action_words" in data
-    assert "negation_patterns" in data
-    assert "explanation_patterns" in data
-    assert isinstance(data["strong_signals"], list)
-    assert len(data["strong_signals"]) >= 3
+def test_obsolete_test_files_removed() -> None:
+    for path in [
+        "tests/test_finalize_governance.py",
+        "tests/test_guard_script.py",
+    ]:
+        assert not (REPO_ROOT / path).exists(), f"{path} must be deleted"
