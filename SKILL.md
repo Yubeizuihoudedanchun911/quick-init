@@ -28,15 +28,13 @@ Initialize or update a target repository with project governance structure and a
 13. Read templates from this Skill root under `templates/**`.
 14. Create the governance structure.
 15. Install agent entry instruction files from `templates/agent-instructions/**`.
-16. Install selected agent integration files.
+16. Install selected agent integration files (daily and summarize agent configs, trigger scripts).
 17. Copy `templates/subagents/commit-governance-core.md` to `.quick-init/rules/commit-governance-core.md`.
-18. Copy `templates/hooks/governance-trigger-core.py.tmpl` to `.quick-init/hooks/governance_trigger_core.py`.
-19. Copy `templates/hooks/intent-keywords.json` to `.quick-init/hooks/intent-keywords.json`.
-20. Copy `templates/hooks/finalize-governance.py.tmpl` to `.quick-init/hooks/finalize-governance.py`.
-21. Create the seed iteration before installing the Git pre-commit guard.
-22. Install the Git pre-commit guard.
-23. Write `.quick-init/state/init-metadata.json` with version, commit hash, language, and template hashes.
-24. Run or request the selected agent's `commit-governance` workflow once.
+18. Copy `templates/subagents/commit-governance-daily.md` to `.quick-init/rules/commit-governance-daily.md`.
+19. Copy `templates/subagents/commit-governance-summarize.md` to `.quick-init/rules/commit-governance-summarize.md`.
+20. Create the seed iteration.
+21. Write `.quick-init/state/init-metadata.json` with version, commit hash, language, and template hashes.
+22. Run or request the selected agent's `commit-governance` workflow once.
 
 ## Generated Docs Model
 

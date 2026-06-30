@@ -34,7 +34,6 @@ def test_skill_flow_exact_required_questions() -> None:
         "Ask which agent entry files to install (AGENTS.md, CLAUDE.md, GEMINI.md).",
         "Ask which agent hook integrations to install (Codex, Claude, or both).",
         "Ask for first iteration name.",
-        "Create the seed iteration before installing the Git pre-commit guard.",
     ]
     flow_lines = _required_flow_lines(text)
     for line in expected:
@@ -57,22 +56,44 @@ def test_skill_flow_has_version_metadata_step() -> None:
 
 def test_skill_flow_supports_go_and_rust() -> None:
     text = read_text("SKILL.md")
-    if "supported" in text.lower():
-        supported_line = text.lower().split("supported", maxsplit=1)[1].split("\n")[0]
-        assert "`go`" in text or "go" in supported_line
-    else:
-        assert False, "Must list supported languages"
+    assert "`go`" in text
     assert "`rust`" in text
 
 
-def test_skill_flow_seed_iteration_created_once_before_guard() -> None:
+def test_skill_flow_no_pre_commit_guard() -> None:
     text = read_text("SKILL.md")
     flow_lines = _required_flow_lines(text)
-    seed_line = "Create the seed iteration before installing the Git pre-commit guard."
-    assert flow_lines.count(seed_line) == 1
-    guard_lines = [line for line in flow_lines if "Install the Git pre-commit guard" in line]
-    assert len(guard_lines) >= 1
-    assert flow_lines.index(seed_line) < flow_lines.index(guard_lines[0])
+    guard_lines = [line for line in flow_lines if "pre-commit guard" in line.lower()]
+    assert len(guard_lines) == 0, "Must not have pre-commit guard step"
+
+
+def test_skill_flow_no_finalize_governance() -> None:
+    text = read_text("SKILL.md")
+    assert "finalize-governance" not in text
+
+
+def test_skill_flow_copies_three_prompt_files() -> None:
+    text = read_text("SKILL.md")
+    assert "commit-governance-core.md" in text
+    assert "commit-governance-daily.md" in text
+    assert "commit-governance-summarize.md" in text
+
+
+def test_skill_flow_installs_summarize_agent() -> None:
+    text = read_text("SKILL.md")
+    assert "commit-governance-summarize" in text
+
+
+def test_skill_flow_no_intent_keywords() -> None:
+    text = read_text("SKILL.md")
+    assert "intent-keywords" not in text
+
+
+def test_skill_flow_seed_iteration_present() -> None:
+    text = read_text("SKILL.md")
+    flow_lines = _required_flow_lines(text)
+    seed_lines = [line for line in flow_lines if "seed iteration" in line.lower()]
+    assert len(seed_lines) >= 1
 
 
 def test_readme_development_checks_and_runtime_command() -> None:
