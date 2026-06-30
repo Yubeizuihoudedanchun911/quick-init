@@ -2,64 +2,28 @@
 
 ## Purpose
 
-Handle commit-time project governance without loading full staged diff into the main agent context.
-
-## Inputs
-
-- repository root
-- active iteration state: `.quick-init/state/active-iteration.json`
-- last governance run: `.quick-init/state/last-governance-run.json`
-- staged Markdown files from `git diff --cached --name-only`
+Shared rules for all commit-governance modes. Each mode loads this file plus its own mode-specific prompt.
 
 ## Allowed Writes
 
 - `docs/iterations/**`
-- `docs/changelog.md`
-- `.quick-init/state/last-governance-run.json`
+- `.quick-init/state/active-iteration.json`
 
 ## Disallowed Writes
 
-- business source code
-- dependency files
-- runtime configuration outside selected agent integration files
-- destructive git operations
+- Business source code
+- Test files
+- Dependency files (package.json, pyproject.toml, etc.)
+- Runtime configuration outside selected agent integration files
+- Destructive git operations (push, reset, checkout, rebase)
 
-## Classification
-
-Actions:
-
-- `archive`: move the staged Markdown into the current iteration.
-- `summarize-only`: keep the source in place and record it in `iteration.md` and `manifest.json`.
-- `skip`: ignore empty files, placeholder files, and existing `docs/iterations/**` archive files.
-
-Categories:
-
-- `specs/`: paths or headings with `spec`, `requirement`, `prd`, `story`, `需求`, `规格`, or `用户故事`.
-- `plans/`: paths or headings with `plan`, `design`, `implementation`, `verification`, `计划`, `设计`, `实现`, or `验证`.
-
-Summarize-only paths:
-
-- `docs/onboard/**`
-- `docs/architecture/**`
-- `docs/decisions/**`
-- `docs/changelog.md`
-- `.coding-rules/**`
-- `AGENTS.md`
-- `CLAUDE.md`
-- `GEMINI.md`
-- `.codex/**`
-- `.claude/**`
-
-If classification is unclear, stop and report `unclear`; do not move the file.
-
-## Iteration Shape
+## Iteration Directory
 
 ```text
 docs/iterations/YYYY-MM-DD-topic-slug/
   iteration.md
   manifest.json
-  specs/
-  plans/
+  <archived documents — flat, no subdirectories>
 ```
 
 Slug rules:
@@ -71,18 +35,24 @@ Slug rules:
 - Use `iteration` when empty.
 - Append `-2`, `-3`, and higher suffixes on path conflict.
 
-## Changelog
+## Manifest Format
 
-When the active iteration changed, summarize the previous iteration into `docs/changelog.md` before archiving current staged docs. Update the previous `manifest.json` with `status = "closed"` and `changelogSynced = true`.
-
-## Finalizing
-
-After completing all archive, manifest, and changelog operations and staging all changed files with `git add`, run the finalize script:
-
-```bash
-python3 .quick-init/hooks/finalize-governance.py <active-iteration-slug>
+```json
+{
+  "iteration": "YYYY-MM-DD-<topic-slug>",
+  "status": "active",
+  "documents": [
+    {
+      "sourcePath": "<original path>",
+      "targetPath": "<path in iteration dir>",
+      "category": "<spec|plan|design|research|other>",
+      "action": "<archive|unclassified>",
+      "sha256": "<hash>"
+    }
+  ]
+}
 ```
 
-Do NOT compute `stagedDocsHash` manually. The finalize script uses the same hash algorithm as the commit trigger and writes `.quick-init/state/last-governance-run.json` automatically. This prevents hash mismatches that cause infinite block loops.
+## Failure Handling
 
-Return only a short summary to the main agent.
+Failures must not block the commit. Report failures in the summary returned to the main agent.
