@@ -12,6 +12,7 @@ docs/changelog.md
 .quick-init/
   state/
   hooks/
+  rules/
 ```
 
 Do not generate business source code, package metadata, language runtime configuration, or top-level verification, research, specs, or designs document trees.

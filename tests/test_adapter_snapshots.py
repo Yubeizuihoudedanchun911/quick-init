@@ -15,18 +15,19 @@ def test_codex_hooks_template_matches_snapshot() -> None:
     assert json.loads(rendered) == json.loads(expected)
 
 
+def test_codex_trigger_template_imports_core() -> None:
+    text = read_text("templates/agent-integrations/codex/hooks/trigger.py.tmpl")
+    assert "governance_trigger_core" in text
+    assert "process_event" in text
+    assert "def staged_docs_hash(" not in text
+
+
 def test_codex_agent_template_matches_snapshot() -> None:
     rendered = read_text("templates/agent-integrations/codex/agents/commit-governance.toml.tmpl")
     expected = read_text("tests/fixtures/snapshots/codex/agents/commit-governance.toml")
     assert rendered == expected
-    assert "Classification rules" in rendered
-    assert "Changelog sync" in rendered
-    assert "Iteration manifest" in rendered
+    assert "commit-governance-core.md" in rendered
     assert "last-governance-run" in rendered
-    assert (
-        "templates/subagents/commit-governance-core.md as the authoritative contract"
-        not in rendered
-    )
 
 
 def test_claude_settings_template_matches_snapshot() -> None:
@@ -39,19 +40,8 @@ def test_claude_agent_template_matches_snapshot() -> None:
     rendered = read_text("templates/agent-integrations/claude/agents/commit-governance.md.tmpl")
     expected = read_text("tests/fixtures/snapshots/claude/agents/commit-governance.md")
     assert rendered == expected
-    assert "classification rules" in rendered.lower()
-    assert "changelogsynced" in rendered.lower() or "changelog sync" in rendered.lower()
-    assert "iteration shape" in rendered.lower()
+    assert "commit-governance-core.md" in rendered
     assert "last-governance-run" in rendered
-    assert "compress whitespace into a single `-`" in rendered.lower()
-    assert (
-        "remove path separators, control characters, and shell-special" in rendered.lower()
-    )
-    assert "if the slug becomes empty, use `iteration`" in rendered.lower() or "use `iteration` when empty" in rendered.lower()
-    assert (
-        "templates/subagents/commit-governance-core.md"
-        not in rendered
-    )
 
 
 def test_claude_settings_match_event_contract() -> None:
@@ -80,6 +70,20 @@ def test_claude_trigger_template_uses_project_root_resolver() -> None:
     trigger = read_text("templates/agent-integrations/claude/hooks/trigger.sh.tmpl")
     assert "${CLAUDE_PROJECT_DIR}" in trigger or "${CLAUDE_PROJECT_DIR:-" in trigger
     assert ".quick-init/hooks/agent-trigger.py" in trigger
+
+
+def test_claude_agent_trigger_template_exists_and_imports_core() -> None:
+    text = read_text("templates/agent-integrations/claude/hooks/agent-trigger.py.tmpl")
+    assert "governance_trigger_core" in text
+    assert "process_event" in text
+    assert "def main(" in text
+
+
+def test_claude_trigger_sh_has_error_handling() -> None:
+    text = read_text("templates/agent-integrations/claude/hooks/trigger.sh.tmpl")
+    assert "command -v python3" in text
+    assert '! -f' in text or '-f "$TRIGGER"' in text
+    assert "exit 1" in text
 
 
 def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
@@ -153,6 +157,18 @@ def run_trigger_trigger(
     return json.loads(completed.stdout)
 
 
+def _install_trigger_core(repo_root: Path) -> None:
+    hooks_dir = repo_root / ".quick-init" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    core_text = read_text("templates/hooks/governance-trigger-core.py.tmpl")
+    (hooks_dir / "governance_trigger_core.py").write_text(
+        core_text,
+        encoding="utf-8",
+    )
+    kw_text = read_text("templates/hooks/intent-keywords.json")
+    (hooks_dir / "intent-keywords.json").write_text(kw_text, encoding="utf-8")
+
+
 def init_repo_with_staged_markdown(
     tmp_path: Path, *, doc_name: str = "notes.md", doc_text: str = "# notes"
 ) -> tuple[Path, Path]:
@@ -162,6 +178,7 @@ def init_repo_with_staged_markdown(
     doc_file = repo_root / doc_name
     doc_file.write_text(doc_text, encoding="utf-8")
     subprocess.run(["git", "-C", str(repo_root), "add", doc_name], check=True)
+    _install_trigger_core(repo_root)
 
     trigger = tmp_path / "trigger.py"
     trigger.write_text(
@@ -206,6 +223,7 @@ def test_codex_trigger_writes_state_to_repo_root_for_subdir(tmp_path: Path) -> N
     subprocess.run(
         ["git", "-C", str(repo_root), "add", "nested-doc.md"], check=True
     )
+    _install_trigger_core(repo_root)
 
     trigger = tmp_path / "trigger.py"
     trigger.write_text(

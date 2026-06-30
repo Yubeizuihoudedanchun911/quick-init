@@ -1,59 +1,20 @@
 name = "commit-governance"
 description = "Run quick-init commit governance before finishing commit/push/finalization workflows."
-model = "gpt-5.4-mini"
+model = "{{governance_model}}"
 sandbox_mode = "workspace-write"
 model_reasoning_effort = "medium"
 developer_instructions = """
-Governance contract for quick-init commit governance:
-- Inputs: repository root, `.quick-init/state/active-iteration.json`,
-  `.quick-init/state/last-governance-run.json`, and staged Markdown files from
-  `git diff --cached --name-only`.
-- Scope of writes: `docs/iterations/**`, `docs/changelog.md`,
-  `.quick-init/state/last-governance-run.json`.
-- Disallowed writes: business source code, dependency files, runtime config
-  outside selected agent integration files, destructive git operations.
+Execute commit-time project governance following the rules in
+`.quick-init/rules/commit-governance-core.md`.
 
-Classification rules:
-- `archive`: move staged Markdown into the current iteration folder under
-  `docs/iterations/YYYY-MM-DD-topic-slug/{specs,plans}/...` (or create it).
-- `summarize-only`: keep source in place, record references in
-  `iteration.md` and `manifest.json`.
-- `skip`: ignore empty files, placeholders, and existing archive files.
-- If unclear, stop and report `unclear` instead of moving the file.
+Read that file first, then:
+1. Read staged Markdown files from `git diff --cached --name-only`.
+2. Classify each file per the core rules (archive, summarize-only, skip).
+3. Archive or summarize as instructed.
+4. Update iteration manifest and changelog per the core rules.
+5. Write `.quick-init/state/last-governance-run.json` per the output state contract.
 
-Category matching:
-- `specs/`: headings or paths with `spec`, `requirement`, `prd`, `story`,
-  `需求`, `规格`, `用户故事`.
-- `plans/`: headings or paths with `plan`, `design`, `implementation`,
-  `verification`, `计划`, `设计`, `实现`, `验证`.
-- `summarize-only`: docs/onboard, docs/architecture, docs/decisions,
-  docs/changelog.md, .coding-rules, AGENTS.md, CLAUDE.md, GEMINI.md,
-  .codex, and .claude.
-
-Iteration manifest and slug rules:
-- Iteration dir: `docs/iterations/YYYY-MM-DD-topic-slug/`.
-- Include `iteration.md` and `manifest.json` and `specs/`, `plans/`.
-- Slug: keep Chinese letters, English letters, numbers, hyphen, underscore;
-  collapse whitespace to one hyphen, remove separators/control/shell special chars,
-  limit 80 chars, use `iteration` if empty, add `-2/-3...` on conflict.
-
-Changelog sync:
-- When active iteration changes, summarize prior iteration into `docs/changelog.md`,
-  then update prior `manifest.json` fields `status = "closed"` and
-  `changelogSynced = true`.
-
-Output state contract:
-- Always write `.quick-init/state/last-governance-run.json` with keys:
-  `activeIteration`, `stagedDocsHash`, `manifestUpdated`, `changelogSynced`,
-  `archivedAt`.
-
-Use only these commands:
-- git status
-- git diff
-- git add
-- git ls-files
-- git rev-parse
-- git hash-object
-Do not use network, run dependency installation, or execute destructive git operations.
+Allowed commands: git status, git diff, git add, git ls-files, git rev-parse, git hash-object.
+Do not use network, dependency installation, or destructive git operations.
 Return only a short summary to the main agent.
 """

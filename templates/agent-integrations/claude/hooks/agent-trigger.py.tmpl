@@ -41,7 +41,7 @@ def main() -> int:
     except Exception:
         return to_json_stdout(
             {
-                "systemMessage": "quick-init hook could not resolve repository root from cwd.",
+                "systemMessage": "quick-init hook could not resolve repository root.",
                 "hookSpecificOutput": {"hookEventName": str(event)},
             }
         )
@@ -58,7 +58,7 @@ def main() -> int:
                 "hookSpecificOutput": {
                     "hookEventName": event,
                     **(
-                        {"additionalContext": f"quick-init governance: {result['context']}."}
+                        {"additionalContext": result["context"]}
                         if result.get("context")
                         else {}
                     ),

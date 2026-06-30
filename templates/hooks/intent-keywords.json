@@ -1,0 +1,28 @@
+{
+  "strong_signals": [
+    "commit-governance",
+    "结束迭代",
+    "finalize iteration",
+    "end iteration",
+    "close iteration"
+  ],
+  "action_words": {
+    "zh": ["提交", "推送", "发布"],
+    "en": ["commit", "push", "publish"]
+  },
+  "negation_patterns": {
+    "zh": ["不要", "不想", "不能", "别"],
+    "en": ["don't", "do not", "not", "never"]
+  },
+  "explanation_patterns": [
+    "explain",
+    "what does",
+    "how does",
+    "what is",
+    "what are",
+    "difference",
+    "解释",
+    "说明",
+    "区别"
+  ]
+}

@@ -2,4 +2,16 @@
 set -euo pipefail
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
-exec python3 "${PROJECT_ROOT}/.quick-init/hooks/agent-trigger.py" "$@"
+TRIGGER="${PROJECT_ROOT}/.quick-init/hooks/agent-trigger.py"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo '{"error":"quick-init: python3 not found"}' >&2
+  exit 1
+fi
+
+if [ ! -f "$TRIGGER" ]; then
+  echo '{"error":"quick-init: agent-trigger.py not found"}' >&2
+  exit 1
+fi
+
+exec python3 "$TRIGGER" "$@"
