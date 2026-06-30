@@ -75,18 +75,14 @@ Slug rules:
 
 When the active iteration changed, summarize the previous iteration into `docs/changelog.md` before archiving current staged docs. Update the previous `manifest.json` with `status = "closed"` and `changelogSynced = true`.
 
-## Output State
+## Finalizing
 
-Write `.quick-init/state/last-governance-run.json` with:
+After completing all archive, manifest, and changelog operations and staging all changed files with `git add`, run the finalize script:
 
-```json
-{
-  "activeIteration": "YYYY-MM-DD-topic",
-  "stagedDocsHash": "sha256",
-  "manifestUpdated": true,
-  "changelogSynced": true,
-  "archivedAt": "ISO-8601 timestamp"
-}
+```bash
+python3 .quick-init/hooks/finalize-governance.py <active-iteration-slug>
 ```
+
+Do NOT compute `stagedDocsHash` manually. The finalize script uses the same hash algorithm as the commit trigger and writes `.quick-init/state/last-governance-run.json` automatically. This prevents hash mismatches that cause infinite block loops.
 
 Return only a short summary to the main agent.

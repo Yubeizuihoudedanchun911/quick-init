@@ -20,7 +20,8 @@ Read that file first, then:
 2. Classify each file per the core rules (archive, summarize-only, skip).
 3. Archive or summarize as instructed.
 4. Update iteration manifest and changelog per the core rules.
-5. Write `.quick-init/state/last-governance-run.json` per the output state contract.
+5. Stage all changed files with `git add`.
+6. Run `python3 .quick-init/hooks/finalize-governance.py <active-iteration-slug>` to finalize governance state. Do NOT compute `stagedDocsHash` manually.
 
 ## Commands
 

@@ -27,7 +27,7 @@ def test_codex_agent_template_matches_snapshot() -> None:
     expected = read_text("tests/fixtures/snapshots/codex/agents/commit-governance.toml")
     assert rendered == expected
     assert "commit-governance-core.md" in rendered
-    assert "last-governance-run" in rendered
+    assert "finalize-governance.py" in rendered
 
 
 def test_claude_settings_template_matches_snapshot() -> None:
@@ -41,7 +41,7 @@ def test_claude_agent_template_matches_snapshot() -> None:
     expected = read_text("tests/fixtures/snapshots/claude/agents/commit-governance.md")
     assert rendered == expected
     assert "commit-governance-core.md" in rendered
-    assert "last-governance-run" in rendered
+    assert "finalize-governance.py" in rendered
 
 
 def test_claude_settings_match_event_contract() -> None:
