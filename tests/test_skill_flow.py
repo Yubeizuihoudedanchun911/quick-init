@@ -79,6 +79,7 @@ def test_readme_development_checks_and_runtime_command() -> None:
     text = read_text("README.md")
     lines = [line.strip() for line in text.splitlines()]
     assert "## Development Checks" in lines
+    assert "## 开发检查" in lines
     assert "/opt/anaconda3/envs/py311env/bin/python -m pytest" in lines
 
 
@@ -112,9 +113,23 @@ def test_readme_mentions_go_and_rust() -> None:
 
 def test_readme_explains_updating_existing_installations() -> None:
     text = read_text("README.md")
-    assert "## Update Existing Installation / 更新已有安装" in text
-    assert "### English" in text
-    assert "### 中文" in text
+    assert "# English" in text
+    assert "# 中文" in text
+    for heading in [
+        "## Install From Source",
+        "## Update Existing Installation",
+        "## Init Flow",
+        "## Generated Project Shape",
+        "## Agent Integrations",
+        "## Development Checks",
+        "## 从源码安装",
+        "## 更新已有安装",
+        "## 初始化流程",
+        "## 生成的项目结构",
+        "## Agent 集成",
+        "## 开发检查",
+    ]:
+        assert heading in text
     assert "git pull --ff-only" in text
     assert ".quick-init/" in text
     assert "incremental update" in text
