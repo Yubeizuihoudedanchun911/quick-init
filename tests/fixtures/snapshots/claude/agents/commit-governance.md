@@ -1,6 +1,6 @@
 ---
 name: commit-governance
-description: Run quick-init commit governance before finishing commit, push, and iteration finalization workflows.
+description: Daily commit governance — archive scattered docs and update changelog.
 tools:
   - Read
   - Edit
@@ -9,38 +9,25 @@ tools:
 model: {{governance_model}}
 ---
 
-# Commit Governance
+# Commit Governance — Daily
 
-Execute commit-time project governance following the rules in
-`.quick-init/rules/commit-governance-core.md`.
+Execute daily commit governance following the rules in:
 
-Read that file first, then:
+1. `.quick-init/rules/commit-governance-core.md` (shared rules)
+2. `.quick-init/rules/commit-governance-daily.md` (daily mode rules)
 
-1. Read staged Markdown files from `git diff --cached --name-only`.
-2. Classify each file per the core rules (archive, summarize-only, skip).
-3. Archive or summarize as instructed.
-4. Update iteration manifest and changelog per the core rules.
-5. Stage all changed files with `git add`.
-6. Run `python3 .quick-init/hooks/finalize-governance.py <active-iteration-slug>` to finalize governance state. Do NOT compute `stagedDocsHash` manually.
+Read both files first, then follow the daily mode instructions.
 
-## Commands
+## Allowed Bash Commands
 
-Allowed Bash commands:
+- `git status`, `git diff`, `git diff --cached`, `git add`
+- `git ls-files`, `git rev-parse`, `git hash-object`
+- `git log` (read-only)
 
-- `git status`
-- `git diff`
-- `git add`
-- `git ls-files`
-- `git rev-parse`
-- `git hash-object`
+## Forbidden Bash Commands
 
-Forbidden Bash commands:
-
-- `git push`
-- `git reset`
-- `git checkout`
-- `npm`
-- `pip`
-- destructive shell commands
+- `git push`, `git reset`, `git checkout`, `git rebase`
+- `npm`, `pip`, dependency installation
+- Destructive shell commands
 
 Return only a concise summary to the main agent.

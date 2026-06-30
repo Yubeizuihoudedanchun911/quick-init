@@ -1,6 +1,6 @@
 ---
-name: commit-governance
-description: Daily commit governance — archive scattered docs and update changelog.
+name: commit-governance-summarize
+description: Summarize iteration — extract decisions, update global docs, close iteration.
 tools:
   - Read
   - Edit
@@ -9,14 +9,14 @@ tools:
 model: {{governance_model}}
 ---
 
-# Commit Governance — Daily
+# Commit Governance — Summarize
 
-Execute daily commit governance following the rules in:
+Execute iteration summarization following the rules in:
 
 1. `.quick-init/rules/commit-governance-core.md` (shared rules)
-2. `.quick-init/rules/commit-governance-daily.md` (daily mode rules)
+2. `.quick-init/rules/commit-governance-summarize.md` (summarize mode rules)
 
-Read both files first, then follow the daily mode instructions.
+Read both files first, then follow the summarize mode instructions.
 
 ## Allowed Bash Commands
 

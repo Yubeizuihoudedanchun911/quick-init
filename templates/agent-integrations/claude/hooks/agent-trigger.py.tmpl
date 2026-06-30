@@ -2,96 +2,49 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
-from pathlib import Path
-
-
-def _ensure_core_importable(root: Path) -> None:
-    qi_hooks = str(root / ".quick-init" / "hooks")
-    if qi_hooks not in sys.path:
-        sys.path.insert(0, qi_hooks)
-
-
-def _resolve_repo_root(cwd: Path) -> Path:
-    toplevel = subprocess.check_output(
-        ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-        text=True,
-    ).strip()
-    return Path(toplevel)
-
-
-def to_json_stdout(payload: dict) -> int:
-    print(json.dumps(payload, ensure_ascii=False))
-    return 0
 
 
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read())
     except json.JSONDecodeError:
-        return to_json_stdout({"systemMessage": "quick-init hook payload is not valid JSON."})
+        print(json.dumps({"systemMessage": "quick-init: invalid JSON payload."}))
+        return 0
 
     event = payload.get("hook_event_name", "")
-    cwd = payload.get("cwd")
-    cwd_path = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
 
-    try:
-        root = _resolve_repo_root(cwd_path)
-    except Exception:
-        return to_json_stdout(
-            {
-                "systemMessage": "quick-init hook could not resolve repository root.",
-                "hookSpecificOutput": {"hookEventName": str(event)},
-            }
-        )
+    if event != "PreToolUse":
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": event}}))
+        return 0
 
-    _ensure_core_importable(root)
-    from governance_trigger_core import process_event
+    tool_input = payload.get("tool_input", {})
+    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+    lowered = command.lower()
 
-    hooks_dir = root / ".quick-init" / "hooks"
-    result = process_event(root, event, payload, hooks_dir)
+    is_commit = "git commit" in lowered or "git push" in lowered
+    if not is_commit:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": event}}))
+        return 0
 
-    if result["action"] == "noop":
-        return to_json_stdout(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": event,
-                    **(
-                        {"additionalContext": result["context"]}
-                        if result.get("context")
-                        else {}
-                    ),
-                },
-            }
-        )
-
-    if result["action"] == "deny":
-        return to_json_stdout(
+    print(
+        json.dumps(
             {
                 "hookSpecificOutput": {
                     "hookEventName": event,
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": result["reason"],
+                    "permissionDecisionReason": (
+                        "quick-init: run commit-governance subagent first."
+                    ),
                 },
                 "systemMessage": (
-                    "quick-init: please run the commit-governance subagent before continuing."
+                    "quick-init: please run the commit-governance subagent"
+                    " (.claude/agents/commit-governance.md) before committing."
                 ),
             }
         )
-
-    return to_json_stdout(
-        {
-            "decision": "block",
-            "reason": result["reason"],
-            "hookSpecificOutput": {
-                "hookEventName": event,
-                "additionalContext": (
-                    ".quick-init/state/governance-trigger.json was updated with stale hash."
-                ),
-            },
-        }
     )
+    return 0
 
 
 if __name__ == "__main__":

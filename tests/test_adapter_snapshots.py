@@ -1,89 +1,83 @@
+from __future__ import annotations
+
 import json
-import hashlib
 import os
 import subprocess
 import sys
 from pathlib import Path
-import pytest
 
-from conftest import read_text
-
-
-def test_codex_hooks_template_matches_snapshot() -> None:
-    rendered = read_text("templates/agent-integrations/codex/hooks.json.tmpl")
-    expected = read_text("tests/fixtures/snapshots/codex/hooks.json")
-    assert json.loads(rendered) == json.loads(expected)
+from conftest import REPO_ROOT, read_text
 
 
-def test_codex_trigger_template_imports_core() -> None:
+def test_codex_hooks_pretooluse_only() -> None:
+    rendered = json.loads(read_text("templates/agent-integrations/codex/hooks.json.tmpl"))
+    assert "PreToolUse" in rendered["hooks"]
+    assert "UserPromptSubmit" not in rendered["hooks"]
+
+
+def test_codex_daily_agent_references_core_and_daily() -> None:
+    text = read_text("templates/agent-integrations/codex/agents/commit-governance.toml.tmpl")
+    assert "commit-governance-core.md" in text
+    assert "commit-governance-daily.md" in text
+    assert "finalize-governance" not in text
+
+
+def test_codex_summarize_agent_exists_and_references_core_and_summarize() -> None:
+    text = read_text(
+        "templates/agent-integrations/codex/agents/commit-governance-summarize.toml.tmpl"
+    )
+    assert "commit-governance-core.md" in text
+    assert "commit-governance-summarize.md" in text
+    assert "finalize-governance" not in text
+
+
+def test_codex_trigger_is_thin_launcher() -> None:
     text = read_text("templates/agent-integrations/codex/hooks/trigger.py.tmpl")
-    assert "governance_trigger_core" in text
-    assert "process_event" in text
-    assert "def staged_docs_hash(" not in text
+    assert "governance_trigger_core" not in text
+    assert "process_event" not in text
+    assert "staged_docs_hash" not in text
+    assert "intent" not in text.lower()
 
 
-def test_codex_agent_template_matches_snapshot() -> None:
-    rendered = read_text("templates/agent-integrations/codex/agents/commit-governance.toml.tmpl")
-    expected = read_text("tests/fixtures/snapshots/codex/agents/commit-governance.toml")
-    assert rendered == expected
-    assert "commit-governance-core.md" in rendered
-    assert "finalize-governance.py" in rendered
-
-
-def test_claude_settings_template_matches_snapshot() -> None:
-    rendered = read_text("templates/agent-integrations/claude/settings.json.tmpl")
-    expected = read_text("tests/fixtures/snapshots/claude/settings.json")
-    assert json.loads(rendered) == json.loads(expected)
-
-
-def test_claude_agent_template_matches_snapshot() -> None:
-    rendered = read_text("templates/agent-integrations/claude/agents/commit-governance.md.tmpl")
-    expected = read_text("tests/fixtures/snapshots/claude/agents/commit-governance.md")
-    assert rendered == expected
-    assert "commit-governance-core.md" in rendered
-    assert "finalize-governance.py" in rendered
-
-
-def test_claude_settings_match_event_contract() -> None:
+def test_claude_settings_pretooluse_only() -> None:
     rendered = json.loads(
         read_text("templates/agent-integrations/claude/settings.json.tmpl")
     )
-    user_prompt = rendered["hooks"]["UserPromptSubmit"][0]
-    pre_tool_use = rendered["hooks"]["PreToolUse"][0]
+    assert "PreToolUse" in rendered["hooks"]
+    assert "UserPromptSubmit" not in rendered["hooks"]
 
-    assert "hooks" in user_prompt
-    assert "hooks" in pre_tool_use
-    assert "matcher" not in user_prompt
-    assert pre_tool_use["matcher"] == "Bash"
-    assert pre_tool_use["hooks"][0]["type"] == "command"
-    assert rendered["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].startswith("bash")
-    assert rendered["hooks"]["PreToolUse"][0]["hooks"][0]["command"].startswith("bash")
-    assert "user-prompt-submit" in rendered["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
-    assert "pre-tool-use" in rendered["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-    assert (
-        "${CLAUDE_PROJECT_DIR}" in pre_tool_use["hooks"][0]["command"]
-        or "${CLAUDE_PROJECT_DIR:-" in pre_tool_use["hooks"][0]["command"]
+
+def test_claude_daily_agent_references_core_and_daily() -> None:
+    text = read_text(
+        "templates/agent-integrations/claude/agents/commit-governance.md.tmpl"
     )
+    assert "commit-governance-core.md" in text
+    assert "commit-governance-daily.md" in text
+    assert "finalize-governance" not in text
 
 
-def test_claude_trigger_template_uses_project_root_resolver() -> None:
-    trigger = read_text("templates/agent-integrations/claude/hooks/trigger.sh.tmpl")
-    assert "${CLAUDE_PROJECT_DIR}" in trigger or "${CLAUDE_PROJECT_DIR:-" in trigger
-    assert ".quick-init/hooks/agent-trigger.py" in trigger
+def test_claude_summarize_agent_exists_and_references_core_and_summarize() -> None:
+    text = read_text(
+        "templates/agent-integrations/claude/agents/commit-governance-summarize.md.tmpl"
+    )
+    assert "commit-governance-core.md" in text
+    assert "commit-governance-summarize.md" in text
+    assert "finalize-governance" not in text
 
 
-def test_claude_agent_trigger_template_exists_and_imports_core() -> None:
-    text = read_text("templates/agent-integrations/claude/hooks/agent-trigger.py.tmpl")
-    assert "governance_trigger_core" in text
-    assert "process_event" in text
-    assert "def main(" in text
-
-
-def test_claude_trigger_sh_has_error_handling() -> None:
+def test_claude_trigger_sh_is_thin_shell() -> None:
     text = read_text("templates/agent-integrations/claude/hooks/trigger.sh.tmpl")
-    assert "command -v python3" in text
-    assert '! -f' in text or '-f "$TRIGGER"' in text
-    assert "exit 1" in text
+    assert "python3" in text
+    assert "agent-trigger.py" in text
+    assert "intent" not in text.lower()
+
+
+def test_claude_agent_trigger_is_thin_launcher() -> None:
+    text = read_text("templates/agent-integrations/claude/hooks/agent-trigger.py.tmpl")
+    assert "governance_trigger_core" not in text
+    assert "process_event" not in text
+    assert "staged_docs_hash" not in text
+    assert "intent" not in text.lower()
 
 
 def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
@@ -102,32 +96,20 @@ def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
     quick_init_hook_dir = repo_root / ".quick-init" / "hooks"
     quick_init_hook_dir.mkdir(parents=True, exist_ok=True)
     (quick_init_hook_dir / "agent-trigger.py").write_text(
-        '\n'.join(
+        "\n".join(
             [
-                "import json",
-                "import os",
-                "import sys",
-                "payload_text = sys.stdin.read()",
-                "payload = json.loads(payload_text)",
-                "print(json.dumps({",
-                '    "script": os.path.basename(__file__),',
-                '    "argv": sys.argv[1:],',
-                '    "stdin": payload_text,',
-                "}))",
+                "import json, sys",
+                "payload = json.loads(sys.stdin.read())",
+                'print(json.dumps({"received": True, "event": payload.get("hook_event_name", "")}))',
             ]
         ),
         encoding="utf-8",
     )
 
-    payload = {
-        "hook_event_name": "UserPromptSubmit",
-        "cwd": str(repo_root),
-        "prompt": "请提交这次变更",
-    }
-    payload_json = json.dumps(payload, ensure_ascii=False)
+    payload = json.dumps({"hook_event_name": "PreToolUse", "cwd": str(repo_root)})
     completed = subprocess.run(
-        ["bash", str(trigger_path), "user-prompt-submit"],
-        input=payload_json,
+        ["bash", str(trigger_path), "pre-tool-use"],
+        input=payload,
         env={**os.environ, "CLAUDE_PROJECT_DIR": str(repo_root)},
         text=True,
         cwd=str(repo_root),
@@ -137,287 +119,4 @@ def test_claude_trigger_wrapper_invocation(tmp_path: Path) -> None:
 
     assert completed.returncode == 0
     output = json.loads(completed.stdout)
-    assert output["script"] == "agent-trigger.py"
-    assert output["argv"] == ["user-prompt-submit"]
-    assert output["stdin"] == payload_json
-
-
-def run_trigger_trigger(
-    script_path: Path, payload: dict[str, str], cwd: Path
-) -> dict[str, object]:
-    completed = subprocess.run(
-        [sys.executable, str(script_path)],
-        input=json.dumps(payload),
-        text=True,
-        check=False,
-        cwd=str(cwd),
-        capture_output=True,
-    )
-    assert completed.returncode == 0
-    return json.loads(completed.stdout)
-
-
-def _install_trigger_core(repo_root: Path) -> None:
-    hooks_dir = repo_root / ".quick-init" / "hooks"
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    core_text = read_text("templates/hooks/governance-trigger-core.py.tmpl")
-    (hooks_dir / "governance_trigger_core.py").write_text(
-        core_text,
-        encoding="utf-8",
-    )
-    kw_text = read_text("templates/hooks/intent-keywords.json")
-    (hooks_dir / "intent-keywords.json").write_text(kw_text, encoding="utf-8")
-
-
-def init_repo_with_staged_markdown(
-    tmp_path: Path, *, doc_name: str = "notes.md", doc_text: str = "# notes"
-) -> tuple[Path, Path]:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    subprocess.run(["git", "-C", str(repo_root), "init"], check=True)
-    doc_file = repo_root / doc_name
-    doc_file.write_text(doc_text, encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo_root), "add", doc_name], check=True)
-    _install_trigger_core(repo_root)
-
-    trigger = tmp_path / "trigger.py"
-    trigger.write_text(
-        read_text("templates/agent-integrations/codex/hooks/trigger.py.tmpl"),
-        encoding="utf-8",
-    )
-    return repo_root, trigger
-
-
-def write_stale_governance_state(repo_root: Path, hash_value: str = "stale-hash") -> None:
-    state_file = repo_root / ".quick-init/state/last-governance-run.json"
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(
-        json.dumps({"stagedDocsHash": hash_value}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-
-def compute_staged_markdown_hash(repo_root: Path, staged_files: list[str]) -> str:
-    digest = hashlib.sha256()
-    for path in staged_files:
-        digest.update(path.encode("utf-8"))
-        try:
-            content = subprocess.check_output(
-                ["git", "-C", str(repo_root), "show", f":{path}"], text=False
-            )
-        except subprocess.CalledProcessError:
-            content = b""
-        digest.update(content)
-    return digest.hexdigest()
-
-
-def test_codex_trigger_writes_state_to_repo_root_for_subdir(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    subdir = repo_root / "nested"
-    repo_root.mkdir()
-    subdir.mkdir()
-    subprocess.run(["git", "-C", str(repo_root), "init"], check=True)
-    doc_file = repo_root / "nested-doc.md"
-    doc_file.write_text("# nested doc", encoding="utf-8")
-
-    subprocess.run(
-        ["git", "-C", str(repo_root), "add", "nested-doc.md"], check=True
-    )
-    _install_trigger_core(repo_root)
-
-    trigger = tmp_path / "trigger.py"
-    trigger.write_text(
-        read_text("templates/agent-integrations/codex/hooks/trigger.py.tmpl"),
-        encoding="utf-8",
-    )
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": str(subdir),
-            "input": "run commit-governance now",
-        },
-        cwd=repo_root,
-    )
-
-    assert output["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
-    root_state_file = repo_root / ".quick-init/state/governance-trigger.json"
-    subdir_state_file = subdir / ".quick-init/state/governance-trigger.json"
-    assert root_state_file.exists()
-    assert not subdir_state_file.exists()
-
-
-@pytest.mark.parametrize(
-    "tool_command",
-    [
-        "ls",
-        "pytest",
-        "git status",
-        "git diff",
-    ],
-)
-def test_codex_trigger_pre_tool_use_noop(tmp_path: Path, tool_command: str) -> None:
-    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "PreToolUse",
-            "cwd": str(repo_root),
-            "tool_input": {"command": tool_command},
-        },
-        cwd=repo_root,
-    )
-
-    assert output["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
-    assert output["hookSpecificOutput"].get("permissionDecision") is None
-    assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
-
-
-def test_codex_trigger_pre_tool_use_deny_when_marked_for_commit(tmp_path: Path) -> None:
-    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "PreToolUse",
-            "cwd": str(repo_root),
-            "tool_input": {"command": "git commit -m x"},
-        },
-        cwd=repo_root,
-    )
-
-    assert output["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
-    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
-    decision_reason = output["hookSpecificOutput"].get("permissionDecisionReason")
-    assert isinstance(decision_reason, str) and decision_reason.strip()
-
-
-def test_codex_trigger_user_prompt_submit_noop_for_non_submission_intent(tmp_path: Path) -> None:
-    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": str(repo_root),
-            "prompt": "请解释一下这个仓库结构",
-        },
-        cwd=repo_root,
-    )
-
-    assert output["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
-    assert "decision" not in output
-    assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
-
-
-@pytest.mark.parametrize(
-    "prompt_text",
-    [
-        "what does git push do?",
-        "explain git push",
-        "how does git commit work?",
-        "please explain commit message conventions",
-        "请解释 git commit 和 git push 的区别，不要提交任何东西",
-        "what is the difference between git commit and git push?",
-    ],
-)
-def test_codex_trigger_user_prompt_submit_noop_for_false_positive_prompts(
-    tmp_path: Path, prompt_text: str
-) -> None:
-    repo_root, trigger = init_repo_with_staged_markdown(tmp_path)
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": str(repo_root),
-            "prompt": prompt_text,
-        },
-        cwd=repo_root,
-    )
-
-    assert output["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
-    assert "decision" not in output
-    assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
-
-
-def test_codex_trigger_user_prompt_submit_blocks_stale_markdown(tmp_path: Path) -> None:
-    repo_root, trigger = init_repo_with_staged_markdown(
-        tmp_path, doc_name="nested-doc.md", doc_text="# stale notes"
-    )
-    write_stale_governance_state(repo_root)
-
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": str(repo_root),
-            "message": "请帮我提交这次变更并推送",
-        },
-        cwd=repo_root,
-    )
-
-    assert output["decision"] == "block"
-    reason = output.get("reason")
-    assert isinstance(reason, str) and reason.strip()
-
-
-@pytest.mark.parametrize(
-    "prompt_text",
-    [
-        "commit these changes",
-        "提交这些改动",
-        "git commit and push",
-        "prepare commit",
-        "发布这个分支",
-        "push this branch",
-    ],
-)
-def test_codex_trigger_user_prompt_submit_blocks_stale_markdown_for_action_prompt(
-    tmp_path: Path, prompt_text: str
-) -> None:
-    repo_root, trigger = init_repo_with_staged_markdown(
-        tmp_path, doc_name="nested-doc.md", doc_text="# stale notes"
-    )
-    write_stale_governance_state(repo_root)
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": str(repo_root),
-            "message": prompt_text,
-        },
-        cwd=repo_root,
-    )
-
-    assert output["decision"] == "block"
-    reason = output.get("reason")
-    assert isinstance(reason, str) and reason.strip()
-
-
-def test_codex_trigger_user_prompt_submit_noop_when_hash_unchanged(tmp_path: Path) -> None:
-    repo_root, trigger = init_repo_with_staged_markdown(
-        tmp_path, doc_name="nested-doc.md", doc_text="# same notes"
-    )
-    staged_files_output = subprocess.check_output(
-        ["git", "-C", str(repo_root), "diff", "--cached", "--name-only"],
-        text=True,
-    ).splitlines()
-    staged_files = [path for path in staged_files_output if path.endswith(".md")]
-    current_hash = compute_staged_markdown_hash(repo_root, staged_files)
-
-    state_file = repo_root / ".quick-init/state/last-governance-run.json"
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(
-        json.dumps({"stagedDocsHash": current_hash}, ensure_ascii=False), encoding="utf-8"
-    )
-
-    output = run_trigger_trigger(
-        trigger,
-        {
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": str(repo_root),
-            "input": "git commit",
-        },
-        cwd=repo_root,
-    )
-
-    assert "decision" not in output
-    assert not (repo_root / ".quick-init/state/governance-trigger.json").exists()
+    assert output["received"] is True
