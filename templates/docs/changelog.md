@@ -1,3 +1,3 @@
 # Changelog
 
-Cross-iteration summaries are managed through quick-init marker blocks. Manual notes belong outside quick-init marker blocks.
+每次提交自动追加一行记录。Iteration 结束时补充分隔标题。

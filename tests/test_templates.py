@@ -22,6 +22,7 @@ REQUIRED_TEMPLATES = [
     "templates/docs/decision.md",
     "templates/docs/iteration.md",
     "templates/docs/changelog.md",
+    "templates/docs/adr.md",
 ]
 
 
@@ -108,8 +109,8 @@ def test_coding_rules_have_minimum_rule_count() -> None:
 _DOCS_SKELETON_SECTIONS = {
     "templates/docs/onboard.md": ["Project Purpose", "Local Setup", "Common Commands"],
     "templates/docs/architecture.md": ["Module Boundaries", "External Integrations", "Data Flow"],
-    "templates/docs/decision.md": ["Record format"],
-    "templates/docs/iteration.md": ["Creating a New Iteration", "Closing an Iteration"],
+    "templates/docs/decision.md": ["ADR", "索引"],
+    "templates/docs/iteration.md": ["归档文档", "执行摘要", "遗留问题"],
 }
 
 
