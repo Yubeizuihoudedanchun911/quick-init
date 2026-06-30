@@ -26,6 +26,54 @@ git clone https://github.com/Yubeizuihoudedanchun911/quick-init.git ~/.claude/sk
 
 Before implementation, verify the current official installation path for the agent you use.
 
+## Update Existing Installation / 更新已有安装
+
+### English
+
+If `quick-init` is already installed as a local Skill, update the Skill source first:
+
+```bash
+cd ~/.codex/skills/quick-init
+git pull --ff-only
+
+cd ~/.claude/skills/quick-init
+git pull --ff-only
+```
+
+Only run the command for the agent locations you actually installed. If you cloned this repository somewhere else, run `git pull --ff-only` in that clone instead.
+
+After the Skill source is updated, open the target repository that already has `.quick-init/` and invoke the `quick-init` Skill again. The Skill detects the existing `.quick-init/` directory and runs an incremental update: it refreshes managed coding rules, hook templates, shared governance rules, and agent adapter files while avoiding replacement of user-filled docs.
+
+For an existing initialized project, the normal update flow is:
+
+1. Update the local `quick-init` Skill source.
+2. In the target repository, ask the agent to use `quick-init` to update existing governance files.
+3. Select the desired agent entry files and hook integrations.
+4. Review the generated diff, run the project checks, then commit the update in the target repository.
+
+### 中文
+
+如果 `quick-init` 已经作为本地 Skill 安装，先更新本地 Skill 源码：
+
+```bash
+cd ~/.codex/skills/quick-init
+git pull --ff-only
+
+cd ~/.claude/skills/quick-init
+git pull --ff-only
+```
+
+只需要在实际安装过的 agent 目录里执行对应命令。如果你把本仓库 clone 到了其他位置，就在那个 clone 目录里执行 `git pull --ff-only`。
+
+本地 Skill 源码更新后，打开已经包含 `.quick-init/` 的目标仓库，再次调用 `quick-init` Skill。Skill 会检测已有的 `.quick-init/` 目录并执行增量更新：刷新受 quick-init 管理的 coding rules、hook 模板、共享治理规则和 agent adapter 文件，同时避免覆盖用户已经填写过的 docs 内容。
+
+已有初始化项目的常规更新流程：
+
+1. 更新本地 `quick-init` Skill 源码。
+2. 在目标仓库中要求 agent 使用 `quick-init` 更新现有治理文件。
+3. 选择需要安装或刷新哪些 agent entry files 和 hook integrations。
+4. review 生成的 diff，运行项目检查，然后在目标仓库提交本次更新。
+
 ## Init Flow
 
 When invoked by a coding agent, this Skill asks for:

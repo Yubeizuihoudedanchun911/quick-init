@@ -108,3 +108,14 @@ def test_readme_mentions_go_and_rust() -> None:
     lower = text.lower()
     assert "go" in lower
     assert "rust" in lower
+
+
+def test_readme_explains_updating_existing_installations() -> None:
+    text = read_text("README.md")
+    assert "## Update Existing Installation / 更新已有安装" in text
+    assert "### English" in text
+    assert "### 中文" in text
+    assert "git pull --ff-only" in text
+    assert ".quick-init/" in text
+    assert "incremental update" in text
+    assert "增量更新" in text
