@@ -3,17 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
-from pathlib import Path
-
-
-def _resolve_repo_root(cwd: Path) -> Path:
-    toplevel = subprocess.check_output(
-        ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-        text=True,
-    ).strip()
-    return Path(toplevel)
 
 
 def to_json_stdout(payload: dict) -> int:

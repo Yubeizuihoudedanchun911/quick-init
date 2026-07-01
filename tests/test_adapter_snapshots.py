@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
-from conftest import REPO_ROOT, read_text
+from conftest import read_text
 
 
 def test_codex_hooks_pretooluse_only() -> None:

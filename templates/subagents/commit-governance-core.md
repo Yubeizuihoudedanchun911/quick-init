@@ -6,8 +6,8 @@ Shared rules for all commit-governance modes. Each mode loads this file plus its
 
 ## Allowed Writes
 
-- `docs/iterations/**`
-- `.quick-init/state/active-iteration.json`
+- `docs/**`
+- `.quick-init/state/**`
 
 ## Disallowed Writes
 
